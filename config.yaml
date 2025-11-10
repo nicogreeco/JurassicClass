@@ -1,0 +1,9 @@
+model:
+  name: 'EfficentRex'  # or 'RexNet'
+  lr: 1e-3
+
+training:
+  max_epochs: 50
+  
+num_classes: 8
+size: 224
