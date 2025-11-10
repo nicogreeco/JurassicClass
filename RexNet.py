@@ -66,7 +66,7 @@ class RexNet(L.LightningModule):
     def configure_optimizers(self):
         trainable_params = filter(lambda p: p.requires_grad, self.model.parameters())
         opt = optim.Adam(trainable_params, lr=self.lr)
-        sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=5)
+        sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=3)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
     
 

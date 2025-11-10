@@ -3,7 +3,7 @@ model:
   lr: 1e-3
 
 training:
-  max_epochs: 50
+  max_epochs: 20
   batch_size: 32
   
 num_classes: 8

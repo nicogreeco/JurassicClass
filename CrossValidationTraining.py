@@ -71,10 +71,15 @@ def run_cross_validation(model_class, base_tfms, config):
         
         early_stopping_callback = EarlyStopping(
             monitor="val_loss", 
-            patience=10)
+            patience=6)
         
-        checkpoint_callback = ModelCheckpoint(dirpath=f"./models/cross_validation/{model.model_name}/fold_{fold}", save_top_k=1, monitor="val_loss")
-
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=f"./models/cross_validation/{config.model.name}/fold_{fold}",
+            filename="best-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}",  # Include both loss and accuracy
+            save_top_k=1,
+            monitor="val_loss",
+            mode="min"
+        )
         trainer = Trainer(
                     default_root_dir=f"./models/cross_validation/{model.model_name}/fold_{fold}",
                     callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback], 
