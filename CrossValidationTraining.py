@@ -79,7 +79,8 @@ def run_cross_validation(model_class, base_tfms, config):
                     default_root_dir=f"./models/cross_validation/{model.model_name}/fold_{fold}",
                     callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback], 
                     max_epochs=config.training.max_epochs,
-                    enable_checkpointing=True)
+                    enable_checkpointing=True,
+                    log_every_n_steps=10)
         
         trainer.fit(model=model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         
