@@ -11,6 +11,7 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from torch.utils.data import Subset
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning import Trainer, Callback
+from lightning.pytorch.loggers import TensorBoardLogger
 
 from utils import visualize_image, letterbox_to_square
 from EfficentRex import EfficentRex
@@ -19,11 +20,17 @@ from RexNet import RexNet
 class ValidationTracker(Callback):
     def __init__(self):
         self.best_val_loss = float('inf')
+        self.best_val_acc = float(0.0)
         
     def on_validation_epoch_end(self, trainer, pl_module):
         val_loss = trainer.callback_metrics.get('val_loss')
+        val_acc = trainer.callback_metrics.get('val_acc')
         if val_loss is not None and val_loss < self.best_val_loss:
             self.best_val_loss = val_loss.item()
+            print(f"New best val_loss: {self.best_val_loss:.4f}")
+        if val_acc is not None and val_acc > self.best_val_acc:
+            self.best_val_acc = val_acc.item()
+            print(f"New best val_acc: {self.best_val_acc:.4f}")
 
 def run_cross_validation(model_class, base_tfms, config):
        
@@ -51,7 +58,7 @@ def run_cross_validation(model_class, base_tfms, config):
     # Initialize KFold
     kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-    fold_results = []
+    fold_results = {'loss': [], 'acc': []}
     
     # Split the dataset into 5 folds
     for fold, (train_idx, val_idx) in enumerate((kfold.split(train_ds, train_ds.targets))):
@@ -71,7 +78,8 @@ def run_cross_validation(model_class, base_tfms, config):
         
         early_stopping_callback = EarlyStopping(
             monitor="val_loss", 
-            patience=6)
+            mode="min",
+            patience=8)
         
         checkpoint_callback = ModelCheckpoint(
             dirpath=f"./models/cross_validation/{config.model.name}/fold_{fold}",
@@ -80,32 +88,54 @@ def run_cross_validation(model_class, base_tfms, config):
             monitor="val_loss",
             mode="min"
         )
+        
+        tb_logger = TensorBoardLogger(
+            save_dir=f"./models/cross_validation/{config.model.name}",  # parent dir
+            name=f"tb_logs",                                            # subfolder name
+            version=f"fold_{fold}",                                     # unique run per fold
+            default_hp_metric=False                                      # optional: disable hp metric
+        )
+
         trainer = Trainer(
-                    default_root_dir=f"./models/cross_validation/{model.model_name}/fold_{fold}",
-                    callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback], 
-                    max_epochs=config.training.max_epochs,
-                    enable_checkpointing=True,
-                    log_every_n_steps=10)
+            default_root_dir=f"./models/cross_validation/{model.model_name}/fold_{fold}",
+            logger=tb_logger,  # <— attach it here
+            callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback],
+            max_epochs=config.training.max_epochs,
+            enable_checkpointing=True,
+            log_every_n_steps=10
+        )
         
         trainer.fit(model=model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         
         best_val_loss = validation_tracker.best_val_loss
-        fold_results.append(best_val_loss)
+        fold_results['loss'].append(best_val_loss)
+
+        best_val_acc = validation_tracker.best_val_acc
+        fold_results['acc'].append(best_val_acc)
         
-        print(f"Fold {fold + 1} best validation loss: {best_val_loss:.4f}")
+        print(f"Fold {fold + 1} best validation loss: {best_val_loss:.4f}, best accuracy: {best_val_acc:.4f}")
         
      # Calculate statistics
-    mean_val_loss = np.mean(fold_results)
-    std_val_loss = np.std(fold_results)
+    mean_val_loss = np.mean(fold_results['loss'])
+    std_val_loss = np.std(fold_results['loss'])
     
-    print(f"\nResults:")
-    for i, loss in enumerate(fold_results):
+    print(f"\Loss:")
+    for i, loss in enumerate(fold_results['loss']):
         print(f"  Fold {i + 1}: {loss:.4f}")
     print(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}")
+
+    mean_val_acc = np.mean(fold_results['acc'])
+    std_val_acc = np.std(fold_results['acc'])
+
+    print(f"\nAccuracy:")
+    for i, acc in enumerate(fold_results['acc']):
+        print(f"  Fold {i + 1}: {acc:.4f}")
+    print(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
+
       
 def main(config):
     match config.model.name:
-        case 'RexNet':
+        case 'RexNet18':
             model_class = RexNet
             base_tfms = ResNet18_Weights.DEFAULT.transforms()
         case 'EfficentRex':

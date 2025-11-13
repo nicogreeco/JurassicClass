@@ -1,10 +1,10 @@
 model:
-  name: 'EfficentRex'  # or 'RexNet'
-  lr: 1e-3
+  name: 'EfficentRex'  # or 'RexNet18'
+  lr: 5e-3
 
 training:
-  max_epochs: 20
-  batch_size: 32
+  max_epochs: 40
+  batch_size: 64
   
 num_classes: 8
 size: 224
