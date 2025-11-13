@@ -11,8 +11,8 @@ class RexNet(L.LightningModule):
 
         weights = ResNet18_Weights.DEFAULT
         self.base_tfms = weights.transforms()
-
         model = resnet18(weights=weights)
+        
         in_features = model.fc.in_features
         model.fc = nn.Linear(in_features, num_classes)
         self.model = model
@@ -25,7 +25,6 @@ class RexNet(L.LightningModule):
 
         self.lr = getattr(config, "lr", 1e-3)
 
-    # Keep backbone eval (BN/Dropout frozen) each epoch
     def on_train_epoch_start(self):
         self.model.eval()
         self.model.fc.train()   # only head trains
@@ -45,14 +44,14 @@ class RexNet(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        # Let Lightning aggregate across steps/epochs
+
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log("train_acc",  acc,  prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        # No manual lists; aggregate per epoch automatically
+        
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         self.log("val_acc",  acc,  prog_bar=True, on_step=False, on_epoch=True)
 

@@ -20,39 +20,45 @@ class EfficentRex(L.LightningModule):
         model.classifier[1] = nn.Linear(num_input_features, num_classes)
         self.model =  model
         
+        # Freeze backbone
         for p in self.model.parameters():
             p.requires_grad = False
         for p in self.model.classifier.parameters():
             p.requires_grad = True
-        
-        self.model.eval()
-        self.model.classifier.train()
 
         self.lr = config.lr if hasattr(config, 'lr') else 1e-3
-        self.best_val_loss = {'loss' : float('inf'), 
-                              'epoch': 0}
+        
+    def on_train_epoch_start(self):
+        self.model.eval()
+        self.model.fc.train()   # only head trains
+    
+    def on_validation_epoch_start(self):
+        self.model.eval()
         
     def forward(self, x):
         logits = self.model(x)
         return logits
-
-    def training_step(self, batch, batch_idx):
+    
+    def _step(self, batch):
         x, y = batch
         logits = self(x)
         loss = nn.functional.cross_entropy(logits, y)
         acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log("train_loss", loss, prog_bar=True)
-        self.log("train_acc", acc, prog_bar=True)
+        return loss, acc
+
+    def training_step(self, batch, batch_idx):
+        loss, acc = self._step(batch)
+   
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_acc",  acc,  prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = nn.functional.cross_entropy(logits, y)
-        acc = (logits.argmax(dim=1) == y).float().mean()
-        self.log("val_loss", loss, prog_bar=True)
-        self.log("val_acc", acc, prog_bar=True)
-        return {"val_loss": loss, "val_acc": acc}
+        loss, acc = self._step(batch)
+        
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_acc",  acc,  prog_bar=True, on_step=False, on_epoch=True)
+
 
     def configure_optimizers(self):
         trainable_params = filter(lambda p: p.requires_grad, self.model.parameters())
