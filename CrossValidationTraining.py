@@ -2,7 +2,7 @@ import numpy as np
 from argparse import ArgumentParser
 from omegaconf import OmegaConf
 
-from torchvision.models import ResNet18_Weights, EfficientNet_V2_S_Weights
+from torchvision.models import ResNet34_Weights, EfficientNet_V2_S_Weights
 from torchvision import transforms
 from torchvision.transforms import functional as F
 from torchvision import datasets, transforms
@@ -134,13 +134,12 @@ def run_cross_validation(model_class, base_tfms, config):
     for i, acc in enumerate(fold_results['acc']):
         print(f"  Fold {i + 1}: {acc:.4f}")
     print(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
-
       
 def main(config):
     match config.model.name:
         case 'RexNet18':
             model_class = RexNet
-            base_tfms = ResNet18_Weights.DEFAULT.transforms()
+            base_tfms = ResNet34_Weights.DEFAULT.transforms()
         case 'EfficentRex':
             model_class = EfficentRex
             base_tfms = EfficientNet_V2_S_Weights.DEFAULT.transforms()
