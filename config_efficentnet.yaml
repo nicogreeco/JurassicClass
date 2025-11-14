@@ -1,6 +1,9 @@
 model:
   name: 'EfficentRex'  # or 'RexNet18'
-  lr: 5e-3
+  layers_to_finetune:
+    classifier: 5e-3
+    features.6: 5e-4
+    features.7: 5e-4
 
 training:
   max_epochs: 40

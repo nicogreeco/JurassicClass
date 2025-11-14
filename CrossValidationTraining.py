@@ -18,19 +18,22 @@ from EfficentRex import EfficentRex
 from RexNet import RexNet
 
 class ValidationTracker(Callback):
-    def __init__(self):
+    def __init__(self, verbose=False):
         self.best_val_loss = float('inf')
         self.best_val_acc = float(0.0)
+        self.verbose = verbose
         
     def on_validation_epoch_end(self, trainer, pl_module):
         val_loss = trainer.callback_metrics.get('val_loss')
         val_acc = trainer.callback_metrics.get('val_acc')
         if val_loss is not None and val_loss < self.best_val_loss:
             self.best_val_loss = val_loss.item()
-            print(f"New best val_loss: {self.best_val_loss:.4f}")
+            if self.verbose:
+                print(f"New best val_loss: {self.best_val_loss:.4f}")   
         if val_acc is not None and val_acc > self.best_val_acc:
             self.best_val_acc = val_acc.item()
-            print(f"New best val_acc: {self.best_val_acc:.4f}")
+            if self.verbose:
+                print(f"New best val_acc: {self.best_val_acc:.4f}")
 
 def run_cross_validation(model_class, base_tfms, config):
        
