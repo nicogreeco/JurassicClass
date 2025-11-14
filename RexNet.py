@@ -2,6 +2,7 @@ import lightning as L
 from torch import nn, optim
 import torch
 from torchvision.models import ResNet18_Weights, resnet18
+from torchvision.models import ResNet34_Weights, resnet34
 
 class RexNet(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
@@ -10,9 +11,9 @@ class RexNet(L.LightningModule):
         self.model_name = 'RexNet18'
         self.config = config
 
-        weights = ResNet18_Weights.DEFAULT
+        weights = ResNet34_Weights.DEFAULT
         self.base_tfms = weights.transforms()
-        model = resnet18(weights=weights)
+        model = resnet34(weights=weights)
         
         in_features = model.fc.in_features
         model.fc = nn.Linear(in_features, num_classes)
