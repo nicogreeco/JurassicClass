@@ -137,7 +137,7 @@ def run_cross_validation(model_class, base_tfms, config):
       
 def main(config):
     match config.model.name:
-        case 'RexNet18':
+        case 'RexNet':
             model_class = RexNet
             base_tfms = ResNet34_Weights.DEFAULT.transforms()
         case 'EfficentRex':

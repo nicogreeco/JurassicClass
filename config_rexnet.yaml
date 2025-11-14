@@ -1,5 +1,5 @@
 model:
-  name: 'RexNet18'  # or 'RexNet18'
+  name: 'RexNet'
   layers_to_finetune: 
     fc: 5e-3
     layer4: 5e-4
