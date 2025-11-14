@@ -5,6 +5,8 @@ model:
     features.6: 5e-4
     features.7: 5e-4
 
+experiment_name: last_block_finetune
+
 training:
   max_epochs: 40
   batch_size: 64

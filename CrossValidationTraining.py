@@ -85,7 +85,7 @@ def run_cross_validation(model_class, base_tfms, config):
             patience=8)
         
         checkpoint_callback = ModelCheckpoint(
-            dirpath=f"./models/cross_validation/{config.model.name}/fold_{fold}",
+            dirpath=f"./models/cross_validation/{config.experiment_name}/{config.model.name}/fold_{fold}",
             filename="best-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}",  # Include both loss and accuracy
             save_top_k=1,
             monitor="val_loss",
@@ -93,15 +93,15 @@ def run_cross_validation(model_class, base_tfms, config):
         )
         
         tb_logger = TensorBoardLogger(
-            save_dir=f"./models/cross_validation/{config.model.name}",  # parent dir
+            save_dir=f"./models/cross_validation/{config.experiment_name}/{config.model.name}",  # parent dir
             name=f"tb_logs",                                            # subfolder name
             version=f"fold_{fold}",                                     # unique run per fold
             default_hp_metric=False                                      # optional: disable hp metric
         )
 
         trainer = Trainer(
-            default_root_dir=f"./models/cross_validation/{model.model_name}/fold_{fold}",
-            logger=tb_logger,  # <— attach it here
+            default_root_dir=f"./models/cross_validation/{config.experiment_name}/{model.model_name}/fold_{fold}",
+            logger=tb_logger,
             callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback],
             max_epochs=config.training.max_epochs,
             enable_checkpointing=True,
