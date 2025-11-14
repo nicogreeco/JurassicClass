@@ -9,3 +9,6 @@ tensorboard
 
 # Required for PyTorch CUDA wheels
 --extra-index-url https://download.pytorch.org/whl/cu121
+
+# conda create -n myenv python=3.10 -y && conda activate myenv && pip install -r requirements.txt
+# cd /data/workspace/JurassicClass && uv pip install -r requirments.txt | tee install.log
