@@ -122,7 +122,7 @@ def run_cross_validation(model_class, base_tfms, config):
     mean_val_loss = np.mean(fold_results['loss'])
     std_val_loss = np.std(fold_results['loss'])
     
-    print(f"\Loss:")
+    print(f"Loss:")
     for i, loss in enumerate(fold_results['loss']):
         print(f"  Fold {i + 1}: {loss:.4f}")
     print(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}")
@@ -137,7 +137,7 @@ def run_cross_validation(model_class, base_tfms, config):
     
     with open(f"./models/cross_validation/{config.experiment_name}/{model.model_name}/cross_validation.log", "a") as f:
         f.write("Now the file has more content!")
-        f.write(f"\Loss:")
+        f.write(f"Loss:")
         for i, loss in enumerate(fold_results['loss']):
             f.write(f"  Fold {i + 1}: {loss:.4f}")
         f.write(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}")
