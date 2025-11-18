@@ -118,7 +118,7 @@ def run_cross_validation(model_class, base_tfms, config):
         
         print(f"Fold {fold + 1} best validation loss: {best_val_loss:.4f}, best accuracy: {best_val_acc:.4f}")
         
-     # Calculate statistics
+    # Calculate statistics
     mean_val_loss = np.mean(fold_results['loss'])
     std_val_loss = np.std(fold_results['loss'])
     
@@ -134,7 +134,22 @@ def run_cross_validation(model_class, base_tfms, config):
     for i, acc in enumerate(fold_results['acc']):
         print(f"  Fold {i + 1}: {acc:.4f}")
     print(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
-      
+    
+    with open(f"./models/cross_validation/{config.experiment_name}/{model.model_name}/cross_validation.log", "a") as f:
+        f.write("Now the file has more content!")
+        f.write(f"\Loss:")
+        for i, loss in enumerate(fold_results['loss']):
+            f.write(f"  Fold {i + 1}: {loss:.4f}")
+        f.write(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}")
+
+        mean_val_acc = np.mean(fold_results['acc'])
+        std_val_acc = np.std(fold_results['acc'])
+
+        f.write(f"\nAccuracy:")
+        for i, acc in enumerate(fold_results['acc']):
+            f.write(f"  Fold {i + 1}: {acc:.4f}")
+        f.write(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
+
 def main(config):
     match config.model.name:
         case 'RexNet':
