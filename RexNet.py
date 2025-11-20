@@ -28,6 +28,10 @@ class RexNet(L.LightningModule):
             if n.startswith(tuple(self.layers_to_finetune)):   
                 p.requires_grad = True
                 
+                
+        # Feature extractor
+        self.latent_rap = nn.Sequential(*list(model.children())[:-1])
+                      
     def on_train_epoch_start(self):
         self.model.eval()
 
@@ -43,6 +47,11 @@ class RexNet(L.LightningModule):
     def forward(self, x):
         logits = self.model(x)
         return logits
+    
+    def get_latent_rapresentation(self, batch):
+        x, y = batch
+        rapresentations = self.latent_rap(x)
+        return rapresentations
 
     def _step(self, batch):
         x, y = batch
