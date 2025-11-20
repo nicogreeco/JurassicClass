@@ -136,19 +136,18 @@ def run_cross_validation(model_class, base_tfms, config):
     print(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
     
     with open(f"./models/cross_validation/{config.experiment_name}/{model.model_name}/cross_validation.log", "a") as f:
-        f.write("Now the file has more content!")
-        f.write(f"Loss:")
+        f.write(f"Loss:\n")
         for i, loss in enumerate(fold_results['loss']):
-            f.write(f"  Fold {i + 1}: {loss:.4f}")
-        f.write(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}")
+            f.write(f"  Fold {i + 1}: {loss:.4f}\n")
+        f.write(f"  Mean ± Std: {mean_val_loss:.4f} ± {std_val_loss:.4f}\n")
 
         mean_val_acc = np.mean(fold_results['acc'])
         std_val_acc = np.std(fold_results['acc'])
 
-        f.write(f"\nAccuracy:")
+        f.write(f"\nAccuracy:\n")
         for i, acc in enumerate(fold_results['acc']):
-            f.write(f"  Fold {i + 1}: {acc:.4f}")
-        f.write(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
+            f.write(f"  Fold {i + 1}: {acc:.4f}\n")
+        f.write(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}\n")
 
 def main(config):
     match config.model.name:
