@@ -1,9 +1,15 @@
 model:
   name: 'EfficentRex'  # or 'RexNet18'
   layers_to_finetune:
-    classifier: 5e-3
-    features.6: 5e-4
-    features.7: 5e-4
+    classifier: 
+      lr: 5e-3
+      decay: 0.001
+    features.6: 
+      lr: 5e-4
+      decay: 0.01
+    features.7:
+      lr: 5e-4
+      decay: 0.01
 
 experiment_name: last_block_finetune
 

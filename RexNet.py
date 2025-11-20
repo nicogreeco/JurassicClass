@@ -75,7 +75,7 @@ class RexNet(L.LightningModule):
 
     def configure_optimizers(self):
         param_groups = []
-        for layer, lr in self.config.layers_to_finetune.items():
+        for layer, hyperparms in self.config.layers_to_finetune.items():
             group_params = [
                 p for name, p in self.model.named_parameters()
                 if name.startswith(layer) and p.requires_grad
@@ -83,7 +83,7 @@ class RexNet(L.LightningModule):
             if not group_params:
                 raise ValueError(f"No parameters matched for layer prefix '{layer}'")
 
-            param_groups.append({'params': group_params, 'lr': float(lr)})
+            param_groups.append({'params': group_params, 'lr': float(hyperparms['lr']), 'weight_decay ': float(hyperparms['decay'])})
 
         opt = optim.Adam(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
