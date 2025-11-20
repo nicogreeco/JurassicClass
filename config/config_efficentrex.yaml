@@ -11,7 +11,7 @@ model:
       lr: 5e-4
       decay: 0.01
 
-experiment_name: last_block_finetune
+experiment_name: last_block_finetune_weight_decay
 
 training:
   max_epochs: 40
