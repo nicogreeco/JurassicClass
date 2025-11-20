@@ -29,6 +29,9 @@ class EfficentRex(L.LightningModule):
         for n, p in model.named_parameters():
             if n.startswith(tuple(self.layers_to_finetune)):   
                 p.requires_grad = True
+                
+        # Feature extractor
+        self.latent_rap = nn.Sequential(*list(model.children())[:-1])
 
     def on_train_epoch_start(self):
         self.model.eval()
@@ -44,6 +47,19 @@ class EfficentRex(L.LightningModule):
     def forward(self, x):
         logits = self.model(x)
         return logits
+    
+    def get_latent_rapresentation_batch(self, batch, return_target = False):
+        x, y = batch
+        rapresentations = self.get_latent_rapresentation(x)
+        
+        if return_target:
+            return rapresentations, y
+        else:
+            return rapresentations
+    
+    def get_latent_rapresentation(self, x):
+        rapresentations = self.latent_rap(x)
+        return rapresentations
     
     def _step(self, batch):
         x, y = batch
@@ -67,15 +83,37 @@ class EfficentRex(L.LightningModule):
 
     def configure_optimizers(self):
         param_groups = []
-        for layer, lr in self.config.layers_to_finetune.items():
-            group_params = [
-                p for name, p in self.model.named_parameters()
+        for layer, hyperparms in self.config.layers_to_finetune.items():
+            named_group_params = [
+                (name, p) for name, p in self.model.named_parameters()
                 if name.startswith(layer) and p.requires_grad
             ]
-            if not group_params:
+            if not named_group_params:
                 raise ValueError(f"No parameters matched for layer prefix '{layer}'")
 
-            param_groups.append({'params': group_params, 'lr': float(lr)})
+            weights_group_params = []
+            no_decay_group_params = []
+            for name, p in named_group_params:
+                if (
+                    name.endswith('bias')
+                    or 'bn' in name.lower()
+                    or 'norm' in name.lower()
+                ):
+                    no_decay_group_params.append(p)
+                else:
+                    weights_group_params.append(p)
+            if weights_group_params:
+                param_groups.append({
+                    'params': weights_group_params,
+                    'lr': float(hyperparms['lr']),
+                    'weight_decay': float(hyperparms['decay']),
+                })
+            if no_decay_group_params:
+                param_groups.append({
+                    'params': no_decay_group_params,
+                    'lr': float(hyperparms['lr']),
+                    'weight_decay': 0.0,
+                })
 
         opt = optim.Adam(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)

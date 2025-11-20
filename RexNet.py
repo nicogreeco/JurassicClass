@@ -48,8 +48,16 @@ class RexNet(L.LightningModule):
         logits = self.model(x)
         return logits
     
-    def get_latent_rapresentation(self, batch):
+    def get_latent_rapresentation_batch(self, batch, return_target = False):
         x, y = batch
+        rapresentations = self.get_latent_rapresentation(x)
+        
+        if return_target:
+            return rapresentations, y
+        else:
+            return rapresentations
+        
+    def get_latent_rapresentation(self, x):
         rapresentations = self.latent_rap(x)
         return rapresentations
 
@@ -76,15 +84,37 @@ class RexNet(L.LightningModule):
     def configure_optimizers(self):
         param_groups = []
         for layer, hyperparms in self.config.layers_to_finetune.items():
-            group_params = [
-                p for name, p in self.model.named_parameters()
+            named_group_params = [
+                (name, p) for name, p in self.model.named_parameters()
                 if name.startswith(layer) and p.requires_grad
             ]
-            if not group_params:
+            if not named_group_params:
                 raise ValueError(f"No parameters matched for layer prefix '{layer}'")
 
-            param_groups.append({'params': group_params, 'lr': float(hyperparms['lr']), 'weight_decay ': float(hyperparms['decay'])})
+            weights_group_params = []
+            no_decay_group_params = []
+            for name, p in named_group_params:
+                if (
+                    name.endswith('bias')
+                    or 'bn' in name.lower()
+                    or 'norm' in name.lower()
+                ):
+                    no_decay_group_params.append(p)
+                else:
+                    weights_group_params.append(p)
+            if weights_group_params:
+                param_groups.append({
+                    'params': weights_group_params,
+                    'lr': float(hyperparms['lr']),
+                    'weight_decay': float(hyperparms['decay']),
+                })
+            if no_decay_group_params:
+                param_groups.append({
+                    'params': no_decay_group_params,
+                    'lr': float(hyperparms['lr']),
+                    'weight_decay': 0.0,
+                })
 
-        opt = optim.Adam(param_groups)
+        opt = optim.AdamW(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
