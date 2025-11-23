@@ -65,6 +65,8 @@ def run_cross_validation(model_class, base_tfms, config):
     
     # Split the dataset into 5 folds
     for fold, (train_idx, val_idx) in enumerate((kfold.split(train_ds, train_ds.targets))):
+        print("\n\n")
+        print(f"===========================================================")
         print(f"Fold {fold}:")
 
         model = model_class(config=config.model, num_classes=config.num_classes)
@@ -116,12 +118,16 @@ def run_cross_validation(model_class, base_tfms, config):
         best_val_acc = validation_tracker.best_val_acc
         fold_results['acc'].append(best_val_acc)
         
-        print(f"Fold {fold + 1} best validation loss: {best_val_loss:.4f}, best accuracy: {best_val_acc:.4f}")
+        print(f"===========================================================")
+        print(f"Fold {fold} best validation loss: {best_val_loss:.4f}, best accuracy: {best_val_acc:.4f}")
+        print(f"===========================================================")
         
     # Calculate statistics
     mean_val_loss = np.mean(fold_results['loss'])
     std_val_loss = np.std(fold_results['loss'])
     
+    print(f"===========================================================")    
+    print(f"===========================================================")
     print(f"Loss:")
     for i, loss in enumerate(fold_results['loss']):
         print(f"  Fold {i + 1}: {loss:.4f}")
@@ -134,6 +140,8 @@ def run_cross_validation(model_class, base_tfms, config):
     for i, acc in enumerate(fold_results['acc']):
         print(f"  Fold {i + 1}: {acc:.4f}")
     print(f"  Mean ± Std: {mean_val_acc:.4f} ± {std_val_acc:.4f}")
+    print(f"===========================================================")
+    print(f"===========================================================")
     
     with open(f"./models/cross_validation/{config.experiment_name}/{model.model_name}/cross_validation.log", "a") as f:
         f.write(f"Loss:\n")
