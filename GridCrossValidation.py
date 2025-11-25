@@ -146,7 +146,7 @@ def run_outer_loop(train_ds, val_ds, base_cfg, network="EfficentRex", n_out=1, n
     kfold_out = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
     acc_by_params = {}
-    experiment_name = "grid_search_lr"
+    experiment_name = "grid_search_weight_decay"
 
     for out_fold, (train_idx_out, test_idx_out) in enumerate(kfold_out.split(train_ds, train_ds.targets)):
         if out_fold > n_out:
@@ -200,8 +200,10 @@ def run_outer_loop(train_ds, val_ds, base_cfg, network="EfficentRex", n_out=1, n
                 raise ValueError(f"Unknown network: {network}")
 
             param_grid = {
-                "classifier_lr": [5e-3, 3e-3],
-                "factor": [5, 10],
+                "classifier_lr": [3e-3],
+                "factor": [10],
+                "first_weight": [1e-4, 1e-3],           # decay for classifier
+                "second_weight": [1e-4, 1e-5],    # decay for backbone layers
             }
 
             idx_to_class = {idx: class_ for class_, idx in train_ds.class_to_idx.items()}
@@ -209,24 +211,35 @@ def run_outer_loop(train_ds, val_ds, base_cfg, network="EfficentRex", n_out=1, n
             for params in ParameterGrid(param_grid):
                 lr_cls = params["classifier_lr"]
                 factor = params["factor"]
-
-                if lr_cls == 5e-3 and factor == 10:
-                    continue
+                first_weight = params["first_weight"]
+                second_weight = params["second_weight"]
 
                 cfg = copy.deepcopy(base_cfg)
 
                 layers_dict = cfg["model"]["layers_to_finetune"]
                 first_layer_name = list(layers_dict.keys())[0]
-                layers_dict[first_layer_name]["lr"] = lr_cls
 
+                # classifier hyperparams
+                layers_dict[first_layer_name]["lr"] = lr_cls
+                layers_dict[first_layer_name]["decay"] = first_weight
+
+                # backbone hyperparams
                 backbone_lr = lr_cls / factor
                 for layer_name in list(layers_dict.keys())[1:]:
                     layers_dict[layer_name]["lr"] = backbone_lr
+                    layers_dict[layer_name]["decay"] = second_weight
 
                 cfg["experiment_name"] = experiment_name
-                cfg["model"]["name"] = f"{cfg['model']['name']}_firstlr{lr_cls:g}_fac{factor:g}"
+                cfg["model"]["name"] = (
+                    f"{cfg['model']['name']}_firstlr{lr_cls:g}_fac{factor:g}"
+                    f"_wd1{first_weight:g}_wd2{second_weight:g}"
+                )
 
-                print(f"\t\tTraining with classifier_lr={lr_cls:g}, factor={factor}, backbone_lr={backbone_lr:g}")
+                print(
+                    f"\t\tTraining with classifier_lr={lr_cls:g}, "
+                    f"factor={factor}, backbone_lr={backbone_lr:g}, "
+                    f"classifier_decay={first_weight:g}, backbone_decay={second_weight:g}"
+                )
 
                 model = model_class(config=cfg.model, num_classes=cfg.num_classes)
                 model.to(device)
@@ -252,9 +265,14 @@ def run_outer_loop(train_ds, val_ds, base_cfg, network="EfficentRex", n_out=1, n
     os.makedirs(csv_dir, exist_ok=True)
     csv_path = os.path.join(csv_dir, "grid_search_results.csv")
 
-    with open(csv_path, mode="w", newline="") as f:
+    file_exists = os.path.isfile(csv_path)
+
+    with open(csv_path, mode="a", newline="") as f:  # "a" = append
         writer = csv.writer(f)
-        writer.writerow(["classifier_lr", "factor", "mean_test_accuracy", "std_test_accuracy", "n_runs"])
+
+        # scrivi l'header solo se il file NON esisteva
+        if not file_exists:
+            writer.writerow(["classifier_lr", "factor", "mean_test_accuracy", "std_test_accuracy", "n_runs"])
 
         for (lr_cls, factor), acc_list in acc_by_params.items():
             mean_acc = float(np.mean(acc_list))
@@ -329,7 +347,7 @@ def main():
     run_outer_loop(
         train_ds=train_ds,
         val_ds=val_ds,
-        config=config,
+        base_cfg=config,
         network=network,
         n_out=args.n_out,
         n_in=args.n_in,
