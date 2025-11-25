@@ -115,6 +115,6 @@ class EfficentRex(L.LightningModule):
                     'weight_decay': 0.0,
                 })
 
-        opt = optim.Adam(param_groups)
+        opt = optim.AdamW(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
