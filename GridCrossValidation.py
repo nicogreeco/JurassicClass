@@ -113,7 +113,6 @@ def run_train(model, train_loader, val_loader, config, out_fold, in_fold):
 
     return checkpoint_callback.best_model_path
 
-
 def run_test(model_class, ckpt_path, test_loader, idx_to_class, config, device=None):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
