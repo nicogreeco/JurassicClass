@@ -59,7 +59,7 @@ class EfficentRex(L.LightningModule):
     
     def get_latent_rapresentation(self, x):
         rapresentations = self.latent_rap(x)
-        return rapresentations
+        return rapresentations.squeeze(-1).squeeze(-1)
     
     def _step(self, batch):
         x, y = batch

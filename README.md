@@ -13,7 +13,7 @@ After cleaning, the dataset was divided into training and test sets, with the te
 ### Example Images
 
 The following figure shows a sample of curated images across several species:
-![Dataset Examples](dataset_examples.png)
+![Dataset Examples](images/dataset_examples.png)
 
 ## Models
 

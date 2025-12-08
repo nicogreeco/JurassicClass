@@ -13,6 +13,7 @@ experiment_name: last_block_finetune_weight_decay
 training:
   max_epochs: 40
   batch_size: 64
+  num_workers: 0
   
 num_classes: 8
 size: 224
