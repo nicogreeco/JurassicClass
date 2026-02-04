@@ -72,18 +72,21 @@ Finally, I produced an additional interactive plot where hovering a point shows 
 
 ### Interactive Plots
 
-GitHub does not reliably render interactive HTML directly inside the README, so these plots are provided as HTML files in the repository. You can open them locally in a browser (or serve them via GitHub Pages if desired).
+These are Altair HTML exports (UMAP projection of the penultimate-layer embeddings + optional K-means clustering).  
+GitHub cannot render them inside the README, but they can be opened as interactive pages via GitHub Pages.
 
 Classifier-only (frozen backbone):
-- EfficientNet: [Interactive UMAP (EfficentRex, classifier-only)](https://nicogreeco.github.io/JurassiClass/images/latent/classifeir_only_EfficentRex.html)
-- ResNet: [Interactive UMAP (RexNet, classifier-only)](https://nicogreeco.github.io/JurassiClass/images/latent/classifeir_only_RexNet.html)
+- EfficientNet: https://nicogreeco.github.io/JurassiClass/images/latent/classifier_only_EfficentRex.html
+- ResNet: https://nicogreeco.github.io/JurassiClass/images/latent/classifier_only_RexNet.html
 
 Last-block fine-tuning:
-- EfficientNet: [Interactive UMAP (EfficentRex, fine-tuned)](https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_EfficentRex.html)
-- ResNet: [Interactive UMAP (RexNet, fine-tuned)]https://nicogreeco.github.io/JurassiClass/(images/latent/last_block_finetune_RexNet.html)
+- EfficientNet: https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_EfficentRex.html
+- ResNet: https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_RexNet.html
 
 Hover-to-preview images:
-- EfficientNet: [Interactive UMAP with image hover](https://nicogreeco.github.io/JurassiClass/images/latent/effnet_finetuned_hover.html)
+- EfficientNet: https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_EfficentRex_images.html
+- ResNet: https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_RexNet_images.html
+
 
 ## Future Work
 
