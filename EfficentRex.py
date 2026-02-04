@@ -61,6 +61,9 @@ class EfficentRex(L.LightningModule):
         rapresentations = self.latent_rap(x)
         return rapresentations.squeeze(-1).squeeze(-1)
     
+    def predict_from_latent(self, embeddings):
+        return self.model.classifier(embeddings)
+    
     def _step(self, batch):
         x, y = batch
         logits = self(x)

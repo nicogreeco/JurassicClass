@@ -8,6 +8,7 @@ import pandas as pd
 import altair as alt
 from PIL import Image
 import base64
+from tqdm import tqdm
 import io
 import os
 from typing import Union
@@ -69,26 +70,30 @@ def letterbox_to_square(img, size=256, fill=0):
 def embed_test_given_ckpt_path(
     ckpt_path: str = "log/lightning_logs/version_1/checkpoints/best-epoch=39-val_loss=0.0433.ckpt", 
     data_dir: str = "dataset/dataset",
-    _model: str = 'EfficentRex',
+    _model: str = "EfficentRex",
     device: str = "cpu",
-    return_dataset: bool = False):
-    
+    return_dataset: bool = False,
+):
+    # load config
     config = OmegaConf.load(f"config/config_{_model.lower()}.yaml")
        
     if _model.lower() == "rexnet":
         model_class = RexNet
     elif _model.lower() == "efficentrex":
         model_class = EfficentRex
-    
+    else:
+        raise ValueError(f"Unknown model type: {_model}")
+
+    # load model
     model = model_class.load_from_checkpoint(
         ckpt_path,
         config=config.model,
-        strict=False
+        strict=False,
     )
     model.eval()
     model.to(device)
     
-    # load dataset
+    # validation transforms
     val_tfms = transforms.Compose([
         transforms.Lambda(lambda im: im.convert("RGB")),
         transforms.Lambda(lambda im: letterbox_to_square(im, size=config.size, fill=0)),
@@ -96,65 +101,82 @@ def embed_test_given_ckpt_path(
         model.base_tfms,
     ])
 
-    full_test = datasets.ImageFolder(root=f"{data_dir}/train", transform=val_tfms)  # Same data, different transforms
+    full_test = datasets.ImageFolder(root=f"{data_dir}/test", transform=val_tfms)
 
-
-
-    # ---- take 10% of the dataset ----
-    # percent = 0.05
-    # num_samples = int(len(full_test) * percent)
-
-    # # reproducible random selection
-    # np.random.seed(42)
-    # subset_indices = np.random.choice(len(full_test), num_samples, replace=False)
-
-    # small_dataset = Subset(full_test, subset_indices)
-
-    # loader = DataLoader(
-    #     small_dataset,
-    #     batch_size=config.training.batch_size,
-    #     num_workers=config.training.num_workers
-    # )
-    
+    # idx -> class name
     idx_to_class = {idx: class_ for class_, idx in full_test.class_to_idx.items()}
     
     loader = DataLoader(
         full_test, 
         batch_size=config.training.batch_size, 
-        num_workers=config.training.num_workers)
+        num_workers=config.training.num_workers,
+    )
 
-    # embedd images
     all_embeddings = []
     all_labels = []
+
+    results = {
+        "scores": [],
+        "predicted_names": [],
+        "real_names": [],
+        "correct": [],
+        "overall_accuracy": None,
+    }
+
+    total_correct = 0
+    total_samples = 0
     
     with torch.no_grad():
-        for idx, batch in enumerate(loader):
-            data, labels = batch
-            embeddings = model.get_latent_rapresentation(data)
-            if idx == 1:
-                print(embeddings.shape)
-            all_embeddings.append(embeddings)
-            all_labels.append(labels)
+        for data, labels in tqdm(loader, desc="Embedding test set"):
+            data = data.to(device)
+            labels = labels.to(device)
 
-    all_embeddings = torch.concat(all_embeddings)
-    all_labels = torch.concat(all_labels)
-    
-    accuracy, results = get_test_accuracy(
-        model, 
-        loader,
-        idx_to_class,
-        device)
-    
+            embeddings = model.get_latent_rapresentation(data)
+            all_embeddings.append(embeddings.detach().cpu())
+            all_labels.append(labels.detach().cpu())
+            
+            logits = model.predict_from_latent(embeddings)
+            pred = logits.softmax(dim=1)
+            predicted_class_id = pred.argmax(dim=1)
+
+            # confidence score for the predicted class
+            score = pred.gather(1, predicted_class_id.unsqueeze(1)).squeeze(1)
+            
+            correct = (predicted_class_id == labels).float()
+
+            pred_cpu = predicted_class_id.cpu()
+            labels_cpu = labels.cpu()
+            score_cpu = score.cpu()
+            correct_cpu = correct.cpu()
+
+            results["scores"].extend(score_cpu.tolist())
+            results["predicted_names"].extend([idx_to_class[int(c)] for c in pred_cpu])
+            results["real_names"].extend([idx_to_class[int(c)] for c in labels_cpu])
+            results["correct"].extend(correct_cpu.tolist())
+
+            total_correct += int(correct_cpu.sum().item())
+            total_samples += len(labels_cpu)
+            
+    accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+    results["overall_accuracy"] = accuracy
+
+    all_embeddings = torch.cat(all_embeddings, dim=0)
+    all_labels = torch.cat(all_labels, dim=0)
+       
     if not return_dataset:
+        # backward compatible
         return all_embeddings, all_labels, accuracy
     else:
-        return all_embeddings, all_labels, accuracy, full_test
+        return all_embeddings, all_labels, accuracy, full_test, idx_to_class, model
 
 def get_test_accuracy(
     model, 
     loader,
     idx_to_class,
     device):
+    
+    model.eval()
+    model.to(device)
 
     results = {
             "scores": [],
@@ -203,26 +225,42 @@ def tsne_and_cluster_from_ckpt(
     _model: str = 'EfficentRex',
     device: str = "cpu"):
     
-    embeddings, labels, test_accuracy = embed_test_given_ckpt_path(ckpt_path, data_dir, _model, device)
+    # qui chiedo anche dataset, idx_to_class, model
+    embeddings, labels, test_accuracy, full_test, idx_to_class, model = embed_test_given_ckpt_path(
+        ckpt_path=ckpt_path,
+        data_dir=data_dir,
+        _model=_model,
+        device=device,
+        return_dataset=True,
+    )
     
     print(embeddings.shape)
     
-    if embeddings.shape[1] > 2:
+    # converti embeddings su CPU / numpy per TSNE
+    E = embeddings.detach().cpu().numpy() if torch.is_tensor(embeddings) else np.asarray(embeddings)
+
+    # nomi delle classi (specie) per ogni campione
+    labels_np = labels.detach().cpu().numpy() if torch.is_tensor(labels) else np.asarray(labels)
+    label_names = np.array([idx_to_class[int(i)] for i in labels_np])
+
+    if E.ndim == 2 and E.shape[1] > 2:
         tsne = TSNE(
             n_components=2, 
             learning_rate='auto'
-            ).fit_transform(embeddings)
+        ).fit_transform(E)
     else:
-        tsne = embeddings
+        tsne = E
 
     centroids, clusters, inertia = k_means(
         tsne, 
         n_clusters=8,
-        n_init=5)
+        n_init=5
+    )
     
     k_means_acc, y_pred = cluster_majority_vote_accuracy(labels, clusters)    
     
-    return embeddings, labels, tsne, clusters, k_means_acc, test_accuracy
+    # ritorno anche label_names
+    return embeddings, labels, label_names, tsne, clusters, k_means_acc, test_accuracy
 
 def cluster_majority_vote_accuracy(labels, clusters):
     def _to_numpy(x):
@@ -279,8 +317,9 @@ def interactive_tsne_over_checkpoints(
     for i, ckpt_file in enumerate(ckpt_files):
         print(f"Checkpoint: {ckpt_file}")
         ckpt_path = os.path.join(ckpt_dir, ckpt_file)
-        # extract embeddigs, cluster and tsne
-        embeddings, labels, tsne, clusters, k_means_acc, test_acc = tsne_and_cluster_from_ckpt(
+
+        # ora ricevo anche i nomi delle classi (label_names)
+        embeddings, labels, label_names, tsne, clusters, k_means_acc, test_acc = tsne_and_cluster_from_ckpt(
             ckpt_path=ckpt_path,
             data_dir=data_dir,
             _model=_model,
@@ -292,13 +331,15 @@ def interactive_tsne_over_checkpoints(
 
         X = np.asarray(tsne)
         c = np.asarray(clusters).astype(int)
-        y = np.asarray(labels).astype(int)
+        y_idx = np.asarray(labels).astype(int)
+        y_name = np.asarray(label_names).astype(str)
 
         df_i = pd.DataFrame({
             "x": X[:, 0],
             "y": X[:, 1],
             "cluster": c.astype(str),
-            "label": y.astype(str),
+            "label_idx": y_idx,        # indice numerico
+            "label": y_name,           # NOME specie (usato per colore/legenda)
             "ckpt_idx": i,
             "ckpt": ckpt_file,
             "test_accuracy": test_acc,
@@ -309,7 +350,7 @@ def interactive_tsne_over_checkpoints(
 
     alt.data_transformers.disable_max_rows()
 
-    # color toggle and checkpoint slider
+    # toggle colore (cluster vs label_name)
     color_toggle = alt.param(
         name="color_by",
         value="cluster",
@@ -325,6 +366,7 @@ def interactive_tsne_over_checkpoints(
     points = (
         alt.Chart(df_all)
         .transform_calculate(
+            # se color_by == 'label', usa il NOME della specie in legenda
             color="color_by == 'cluster' ? datum.cluster : datum.label"
         )
         .transform_filter("datum.ckpt_idx == ckpt_idx")
@@ -334,19 +376,15 @@ def interactive_tsne_over_checkpoints(
             y=alt.Y("y:Q", axis=alt.Axis(title="t-SNE 2")),
             color=alt.Color("color:N", legend=alt.Legend(title="Color")),
             tooltip=[
-                # alt.Tooltip("ckpt:N", title="Checkpoint"),
-                # alt.Tooltip("test_accuracy:Q", title="Test Accuracy", format=".2f"),
                 alt.Tooltip("cluster:N", title="Cluster"),
-                alt.Tooltip("label:N", title="Label"),
-                # alt.Tooltip("x:Q", format=".2f"),
-                # alt.Tooltip("y:Q", format=".2f"),
+                alt.Tooltip("label:N", title="Label (species)"),
             ],
             size=alt.value(point_size),
         )
         .add_params(color_toggle, ckpt_slider)
     )
     
-    # small DataFrame for the accuracy
+    # accuracy text
     acc_df = pd.DataFrame([
         {
             "ckpt_idx": i,
@@ -360,7 +398,7 @@ def interactive_tsne_over_checkpoints(
     accuracy_text = (
         alt.Chart(acc_df)
         .transform_filter("datum.ckpt_idx == ckpt_idx")
-        .mark_text(align="right", baseline="top", dx=-10, dy=10, fontSize=14, fontWeight="bold", color="black")
+        .mark_text(align="right", baseline="top", dx=-10, dy=10, fontSize=14, fontWeight="bold")
         .encode(
             x=alt.value(690),
             y=alt.value(10),
@@ -371,7 +409,7 @@ def interactive_tsne_over_checkpoints(
     kmeans_text = (
         alt.Chart(acc_df)
         .transform_filter("datum.ckpt_idx == ckpt_idx")
-        .mark_text(align="right", baseline="top", dx=-10, dy=28, fontSize=14, fontWeight="bold", color="black")
+        .mark_text(align="right", baseline="top", dx=-10, dy=28, fontSize=14, fontWeight="bold")
         .encode(
             x=alt.value(690),
             y=alt.value(28),
@@ -394,24 +432,33 @@ def interactive_tsne_over_checkpoints(
 
 def interactive_tsne_with_images(
     ckpt_path: str,
-    _model: str = "cnn",
-    config_path: str = "config.yaml",
+    _model: str = "EfficentRex",
     data_dir: str = "dataset/dataset",
     n_samples: int = 500,
     image_size: int = 14,
-    point_size: int = 25,
     show_centroids: bool = True,
     save_html: str | None = None,
     random_seed: int = 42,
     overlay_scale: int = 8,
 ):
+    import numpy as np
+    import pandas as pd
+    import altair as alt
+    from PIL import Image
+    import io, base64
+
     np.random.seed(random_seed)
     torch.manual_seed(random_seed)
        
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')   
-   
-    embeddings, labels, test_accuracy, test_dataset = embed_test_given_ckpt_path(
-        ckpt_path, data_dir, _model, device, return_dataset=True)
+
+    embeddings, labels, test_accuracy, test_dataset, idx_to_class, model = embed_test_given_ckpt_path(
+        ckpt_path=ckpt_path,
+        data_dir=data_dir,
+        _model=_model,
+        device=device,
+        return_dataset=True
+    )
 
     # subsample
     N = len(embeddings)
@@ -425,17 +472,22 @@ def interactive_tsne_with_images(
 
     imgs = []
     for i in subsampled_idx:
-        img_tensor, _ = test_dataset[i]
+        img_tensor, _ = test_dataset[i]  # assumed shape (C, H, W) and normalized
         imgs.append(img_tensor)
     imgs = torch.stack(imgs, dim=0)
 
     def to_data_url(img_tensor, target_size=14):
-        mean = [0.485, 0.456, 0.406]
-        std = [0.229, 0.224, 0.225]
+        # assume img_tensor in (C, H, W), normalized with ImageNet stats
+        mean = torch.tensor([0.485, 0.456, 0.406])[:, None, None]
+        std = torch.tensor([0.229, 0.224, 0.225])[:, None, None]
+
         img = img_tensor.clone() * std + mean
         img = torch.clamp(img, 0, 1)
-        arr = (img.squeeze().numpy() * 255).astype(np.uint8)
-        pil = Image.fromarray(arr, mode="L").resize((target_size, target_size), Image.Resampling.LANCZOS)
+
+        # convert to HWC uint8
+        arr = (img.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+
+        pil = Image.fromarray(arr).resize((target_size, target_size), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         pil.save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
@@ -452,27 +504,25 @@ def interactive_tsne_with_images(
     _, clusters, _ = k_means(tsne, n_clusters=10, n_init=5, random_state=random_seed)
 
     y = labels.detach().cpu().numpy() if torch.is_tensor(labels) else np.asarray(labels)
+    label_names = np.array([idx_to_class[int(i)] for i in y])
     df = pd.DataFrame({
         "x": tsne[:, 0],
         "y": tsne[:, 1],
         "cluster": clusters.astype(str),
-        "label": y.astype(str),
+        "label": label_names,
         "image_url": image_urls,
         "row_id": np.arange(len(tsne)),
     })
 
-    test_acc = get_test_accuracy(ckpt_path, _model, config_path)
-
     alt.data_transformers.disable_max_rows()
 
     tsne_w, tsne_h = 700, 600
-    panel_pad = 8
+    panel_pad = 12
     panel_img_w = int(image_size * overlay_scale)
     panel_img_h = int(image_size * overlay_scale)
     panel_w = panel_img_w + 2 * panel_pad
     panel_h = panel_img_h + 2 * panel_pad
 
-    # toggle color by cluster or label
     color_toggle = alt.param(
         name="color_by",
         value="cluster",
@@ -487,7 +537,6 @@ def interactive_tsne_with_images(
         empty="none",
     )
 
-    # tsne points panel
     points = (
         alt.Chart(df)
         .mark_point(filled=True, opacity=0.75)
@@ -507,8 +556,8 @@ def interactive_tsne_with_images(
         .properties(width=tsne_w, height=tsne_h, title="t-SNE (val)")
     )
 
-    # optional centroids
     layers_tsne = [points]
+
     if show_centroids:
         cent = (
             pd.DataFrame({"x": tsne[:, 0], "y": tsne[:, 1], "cluster": clusters})
@@ -535,9 +584,9 @@ def interactive_tsne_with_images(
         )
         layers_tsne.append(centroid_layer)
 
-    # test accuracy
+    # test accuracy text (reuse test_accuracy we already computed)
     accuracy_text = (
-        alt.Chart(pd.DataFrame([{"test_accuracy": test_acc}]))
+        alt.Chart(pd.DataFrame([{"test_accuracy": test_accuracy}]))
         .mark_text(
             align="right",
             baseline="top",
@@ -545,7 +594,6 @@ def interactive_tsne_with_images(
             dy=10,
             fontSize=14,
             fontWeight="bold",
-            color="black",
         )
         .encode(
             x=alt.value(tsne_w),
@@ -560,7 +608,6 @@ def interactive_tsne_with_images(
     pos_x = panel_w / 2
     pos_y = panel_h / 2
 
-    # separate image panel
     image_panel = (
         alt.Chart(df)
         .transform_filter(hover_sel)
