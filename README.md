@@ -80,7 +80,7 @@ Classifier-only (frozen backbone):
 
 Last-block fine-tuning:
 - EfficientNet: [Interactive UMAP (EfficentRex, fine-tuned)](https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_EfficentRex.html)
-- ResNet: [Interactive UMAP (RexNet, fine-tuned)]https://nicogreeco.github.io/JurassiClass/(images/latent/last_block_finetune_RexNet.html)
+- ResNet: [Interactive UMAP (RexNet, fine-tuned)](https://nicogreeco.github.io/JurassiClass/images/latent/last_block_finetune_RexNet.html)
 
 Hover-to-preview images:
 - EfficientNet: [Interactive UMAP with image hover](https://nicogreeco.github.io/JurassiClass/images/latent/effnet_finetuned_hover.html)
