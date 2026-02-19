@@ -269,7 +269,6 @@ def run_outer_loop(train_ds, val_ds, base_cfg, network="EfficentRex", n_out=1, n
     with open(csv_path, mode="a", newline="") as f:  # "a" = append
         writer = csv.writer(f)
 
-        # scrivi l'header solo se il file NON esisteva
         if not file_exists:
             writer.writerow(["classifier_lr", "factor", "mean_test_accuracy", "std_test_accuracy", "n_runs"])
 

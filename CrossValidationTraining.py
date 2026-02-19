@@ -12,6 +12,7 @@ from torch.utils.data import Subset
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning import Trainer, Callback
 from lightning.pytorch.loggers import TensorBoardLogger
+from lora_pytorch import LoRA
 
 from utils import visualize_image, letterbox_to_square
 from EfficentRex import EfficentRex
@@ -35,12 +36,12 @@ class ValidationTracker(Callback):
             if self.verbose:
                 print(f"New best val_acc: {self.best_val_acc:.4f}")
 
-def run_cross_validation(model_class, base_tfms, config):
+def run_cross_validation(model_class, base_tfms, config, lora=False, rank=5):
        
     train_tfms = transforms.Compose([
         transforms.Lambda(lambda im: im.convert("RGB")),
         transforms.Lambda(lambda im: letterbox_to_square(im, size=config.size, fill=0)),
-        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),                 # (or 244 if you really want)
+        transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),                 
         transforms.RandomHorizontalFlip(0.5),
         transforms.ColorJitter(0.2, 0.2, 0.2, 0.1),
         base_tfms,                                  # ToTensor + Normalize
@@ -88,7 +89,7 @@ def run_cross_validation(model_class, base_tfms, config):
         
         checkpoint_callback = ModelCheckpoint(
             dirpath=f"./models/cross_validation/{config.experiment_name}/{config.model.name}/fold_{fold}",
-            filename="best-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}",  # Include both loss and accuracy
+            filename="best-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}", 
             save_top_k=1,
             monitor="val_loss",
             mode="min"
@@ -98,7 +99,7 @@ def run_cross_validation(model_class, base_tfms, config):
             save_dir=f"./models/cross_validation/{config.experiment_name}/{config.model.name}",  # parent dir
             name=f"tb_logs",                                            # subfolder name
             version=f"fold_{fold}",                                     # unique run per fold
-            default_hp_metric=False                                      # optional: disable hp metric
+            default_hp_metric=False                                      
         )
 
         trainer = Trainer(
