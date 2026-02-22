@@ -1,0 +1,16 @@
+model:
+  name: 'LoRaRexNet'
+  rank: 5
+  hparams:
+    weight_decay: 0.001
+    lr: 5e-3
+
+experiment_name: lora
+
+training:
+  max_epochs: 40
+  batch_size: 64
+  num_workers: 0
+
+num_classes: 8
+size: 224

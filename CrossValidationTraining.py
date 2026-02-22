@@ -12,11 +12,11 @@ from torch.utils.data import Subset
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning import Trainer, Callback
 from lightning.pytorch.loggers import TensorBoardLogger
-from lora_pytorch import LoRA
 
 from utils import visualize_image, letterbox_to_square
 from EfficentRex import EfficentRex
 from RexNet import RexNet
+from LoRaRexNet import LoRaResNet
 
 class ValidationTracker(Callback):
     def __init__(self, verbose=False):
@@ -166,6 +166,10 @@ def main(config):
         case 'EfficentRex':
             model_class = EfficentRex
             base_tfms = EfficientNet_V2_S_Weights.DEFAULT.transforms()
+        case 'LoRaRexNet':
+            model_class = LoRaResNet
+            base_tfms = ResNet34_Weights.DEFAULT.transforms()
+            
     run_cross_validation(model_class, base_tfms, config)
       
 if __name__ == '__main__':
