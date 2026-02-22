@@ -68,10 +68,17 @@ class LoRaResNet(L.LightningModule):
         self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
         return loss
 
-    def validation_step(self, batch, batch_idx):
+    def _eval_step(self, batch, stage: str):
         loss, acc = self._step(batch)
-        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("val_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(f"{stage}_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        return {f"{stage}_loss": loss, f"{stage}_acc": acc}
+
+    def validation_step(self, batch, batch_idx):
+        return self._eval_step(batch, "val")
+
+    def test_step(self, batch, batch_idx):
+        return self._eval_step(batch, "test")
         
     def configure_optimizers(self):
         lora_params = [p for n, p in self.model.named_parameters() if ".lora_module." in n]

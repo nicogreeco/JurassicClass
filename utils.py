@@ -4,8 +4,6 @@ import numpy as np
 from torchvision.transforms.functional import resize
 from torchvision.transforms import functional as F
 import numpy as np
-import pandas as pd
-import altair as alt
 from PIL import Image
 import base64
 from tqdm import tqdm

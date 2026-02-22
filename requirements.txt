@@ -7,7 +7,8 @@ scikit-learn
 lightning
 matplotlib
 tensorboard
-
+lora_pytorch
+c
 # Required for PyTorch CUDA wheels
 --extra-index-url https://download.pytorch.org/whl/cu121
 
