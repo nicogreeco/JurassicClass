@@ -72,39 +72,22 @@ Finally, I produced an additional interactive plot where hovering a point shows 
 
 ### Interactive Plots
 
-These are Altair HTML exports (UMAP projection of the penultimate-layer embeddings + optional K-means clustering).  
-GitHub cannot render them inside the README, but they can be opened as interactive pages via GitHub Pages.
-
-Classifier-only (frozen backbone):
-- EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/classifier_only_EfficentRex.html
-- ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/classifier_only_RexNet.html
-
-Last-block fine-tuning:
-- EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex.html
-- ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet.html
-
-Hover-to-preview images:
-- EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html
-- ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html
-
-### Interactive Plots
-
 These are interactive Altair HTML exports (UMAP projection of penultimate-layer embeddings + optional K-means clustering).
 
 **Classifier-only (frozen backbone):**
 
-* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_EfficentRex.html`
-* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_RexNet.html`
+* EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_EfficentRex.html
+* ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_RexNet.html
 
 **Last-block fine-tuning:**
 
-* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex.html`
-* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet.html`
+* EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex.html
+* ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet.html
 
 **Hover-to-preview images:**
 
-* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html`
-* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html`
+* EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html
+* ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html
 
 ## Future Work
 
