@@ -87,6 +87,24 @@ Hover-to-preview images:
 - EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html
 - ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html
 
+### Interactive Plots
+
+These are interactive Altair HTML exports (UMAP projection of penultimate-layer embeddings + optional K-means clustering).
+
+**Classifier-only (frozen backbone):**
+
+* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_EfficentRex.html`
+* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/classifeir_only_RexNet.html`
+
+**Last-block fine-tuning:**
+
+* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex.html`
+* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet.html`
+
+**Hover-to-preview images:**
+
+* EfficientNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html`
+* ResNet: `https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html`
 
 ## Future Work
 
