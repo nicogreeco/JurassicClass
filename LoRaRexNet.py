@@ -2,7 +2,7 @@ import lightning as L
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
-from torchvision.models import ResNet34_Weights, resnet34
+from torchvision.models import ResNet50_Weights, resnet50
 from lora_pytorch import LoRA
 
 class LoRaResNet(L.LightningModule):
@@ -12,10 +12,10 @@ class LoRaResNet(L.LightningModule):
         self.config = config
         self.model_name = 'LoRaRexNet'
 
-        weights = ResNet34_Weights.DEFAULT
+        weights = ResNet50_Weights.DEFAULT
         self.base_tfms = weights.transforms()
 
-        backbone = resnet34(weights=weights)
+        backbone = resnet50(weights=weights)
         in_features = backbone.fc.in_features
 
         lora_wrapped = LoRA.from_module(backbone, rank=config.rank)

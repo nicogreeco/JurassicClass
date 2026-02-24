@@ -1,4 +1,5 @@
 dataset
 .vscode
 models
+logs
 __pycache__

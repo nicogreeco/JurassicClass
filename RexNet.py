@@ -3,17 +3,18 @@ from torch import nn, optim
 import torch
 from torchvision.models import ResNet18_Weights, resnet18
 from torchvision.models import ResNet34_Weights, resnet34
+from torchvision.models import ResNet50_Weights, resnet50
 
 class RexNet(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
         super().__init__()
         self.save_hyperparameters()
-        self.model_name = 'RexNet18'
+        self.model_name = 'RexNet'
         self.config = config
 
-        weights = ResNet34_Weights.DEFAULT
+        weights = ResNet50_Weights.DEFAULT
         self.base_tfms = weights.transforms()
-        model = resnet34(weights=weights)
+        model = resnet50(weights=weights)
         
         in_features = model.fc.in_features
         model.fc = nn.Linear(in_features, num_classes)
@@ -83,6 +84,12 @@ class RexNet(L.LightningModule):
         
         self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         self.log("val_acc",  acc,  prog_bar=True, on_step=False, on_epoch=True)
+
+    def test_step(self, batch, batch_idx):
+        loss, acc = self._step(batch)
+        self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        return {"test_loss": loss, "test_acc": acc}
 
     def configure_optimizers(self):
         param_groups = []
