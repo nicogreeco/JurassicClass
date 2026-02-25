@@ -1,17 +1,16 @@
-from os import name
-
 import lightning as L
 from torch import nn, optim
 import torch
 import torch.nn.functional as F
 from torchgen import model
 from torchvision.models import vit_b_16, ViT_B_16_Weights
+from lora_pytorch import LoRA
 
-class ViTRex_FullFT(L.LightningModule):
+class LoRaViTRex(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
         super().__init__()
         self.save_hyperparameters(ignore=["config"])
-        self.model_name = "ViTRex_FullFT"
+        self.model_name = "LoRaViTRex"
         self.config = config
 
         weights = ViT_B_16_Weights.IMAGENET1K_V1
@@ -21,13 +20,14 @@ class ViTRex_FullFT(L.LightningModule):
 
         # Replace head
         in_features = model.heads.head.in_features
-        model.heads.head = nn.Linear(in_features, num_classes)
-        self.model = model
+        lora_wrapped = LoRA.from_module(model, rank=config.rank)
+        lora_wrapped.module.heads.head = nn.Linear(in_features, num_classes)
+        self.model = lora_wrapped
 
         # Optional warmup: epoch 0 only fc trains (handled in on_train_epoch_start)
         self.warmup_fc_only = bool(getattr(config, "warmup_fc_only", True))
 
-    def _set_trainable(self, train_fc: bool, train_backbone: bool):
+    def _set_trainable(self, train_fc: bool, train_lora: bool):
         # freeze all
         for p in self.model.parameters():
             p.requires_grad = False
@@ -35,45 +35,28 @@ class ViTRex_FullFT(L.LightningModule):
         # unfreeze head
         if train_fc:
             for name, p in self.model.named_parameters():
-                if ".head." in name:
+               if ".head." in name:
                     p.requires_grad = True
 
-        # unfreeze backbone
-        if train_backbone:
+        # unfreeze lora
+        if train_lora:
             for name, p in self.model.named_parameters():
-                if ".head." not in name:
+                if ".lora_module." in name:
                     p.requires_grad = True
 
     def on_train_epoch_start(self):
         if self.current_epoch <= 3 and self.warmup_fc_only:
             # epoch 0: head only, backbone in eval (BN frozen)
-            self._set_trainable(train_fc=True, train_backbone=False)
+            self._set_trainable(train_fc=True, train_lora=False)
             self.model.eval()
-            self.model.heads.train()
+            self.model.module.heads.train()
         else:
-            # epoch 1+: full fine-tune
-            self._set_trainable(train_fc=True, train_backbone=True)
+            # epoch 4+: full fine-tune
+            self._set_trainable(train_fc=True, train_lora=True)
             self.model.train()
-        
-        print(f"Epoch {self.current_epoch} - Trainable parameters:")
-        for name, p in self.model.named_parameters():
-                if p.requires_grad:
-                    print(name)
 
     def forward(self, x):
         return self.model(x)
-
-    def get_latent_rapresentation_batch(self, batch, return_target=False):
-        x, y = batch
-        reps = self.get_latent_rapresentation(x)
-        return (reps, y) if return_target else reps
-
-    def get_latent_rapresentation(self, x):
-        reps = self.latent_rap(x)
-        return reps.squeeze(-1).squeeze(-1)
-
-    def predict_from_latent(self, embeddings):
-        return self.model.heads(embeddings)
 
     def _step(self, batch):
         x, y = batch
@@ -129,8 +112,8 @@ class ViTRex_FullFT(L.LightningModule):
                     wd_params.append(p)
             return wd_params, no_wd_params
 
-        fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n]
-        bb_named = [(n, p) for n, p in self.model.named_parameters() if ".head." not in n]
+        fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
+        bb_named = [(n, p) for n, p in self.model.named_parameters() if ".lora_module." in n.lower()]
 
         fc_wd, fc_no_wd = split_decay(fc_named)
         bb_wd, bb_no_wd = split_decay(bb_named)
