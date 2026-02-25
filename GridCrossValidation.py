@@ -17,9 +17,9 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning import Trainer
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from utils import letterbox_to_square
-from EfficentRex import EfficentRex
-from RexNet import RexNet
+from scripts.utils import letterbox_to_square
+from scripts.EfficentRex import EfficentRex
+from scripts.RexNet import RexNet
 
 
 # ===================== EVALUATION =====================

@@ -15,10 +15,11 @@ from lightning import Trainer, Callback
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from utils import letterbox_to_square
-from EfficentRex import EfficentRex
-from RexNet import RexNet
-from LoRaRexNet import LoRaResNet
+from scripts.RexNet_FullFT import RexNet_FullFT
+from scripts.utils import letterbox_to_square
+from scripts.EfficentRex import EfficentRex
+from scripts.RexNet import RexNet
+from scripts.LoRaRexNet import LoRaResNet
 
 
 class ValidationTracker(Callback):
@@ -326,6 +327,9 @@ def main(config):
             base_tfms = EfficientNet_V2_S_Weights.DEFAULT.transforms()
         case "LoRaRexNet":
             model_class = LoRaResNet
+            base_tfms = ResNet34_Weights.DEFAULT.transforms()
+        case "RexNet_FullFT":
+            model_class = RexNet_FullFT
             base_tfms = ResNet34_Weights.DEFAULT.transforms()
         case _:
             raise ValueError(f"Unknown model name: {config.model.name}")

@@ -2,7 +2,10 @@ import lightning as L
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
+from torchvision.models import ResNet18_Weights, resnet18
+from torchvision.models import ResNet34_Weights, resnet34
 from torchvision.models import ResNet50_Weights, resnet50
+from torchvision.models import ResNet101_Weights, resnet101
 from lora_pytorch import LoRA
 
 class LoRaResNet(L.LightningModule):
@@ -12,10 +15,10 @@ class LoRaResNet(L.LightningModule):
         self.config = config
         self.model_name = 'LoRaRexNet'
 
-        weights = ResNet50_Weights.DEFAULT
+        weights = ResNet101_Weights.DEFAULT
         self.base_tfms = weights.transforms()
 
-        backbone = resnet50(weights=weights)
+        backbone = resnet101(weights=weights)
         in_features = backbone.fc.in_features
 
         lora_wrapped = LoRA.from_module(backbone, rank=config.rank)
@@ -28,7 +31,7 @@ class LoRaResNet(L.LightningModule):
         for _, p in self.model.named_parameters():
             p.requires_grad = False
 
-        # unfreeze classifier head
+        # unfreeze head
         if train_fc:
             for name, p in self.model.named_parameters():
                 if name.startswith("module.fc."):
@@ -40,15 +43,12 @@ class LoRaResNet(L.LightningModule):
                 if ".lora_module." in name:
                     p.requires_grad = True
 
-    def on_fit_start(self):
-        # epoch 0: only fc
-        self._set_trainable(train_fc=True, train_lora=False)
-        self.model.module.eval()          
-        self.model.module.fc.train()
-
     def on_train_epoch_start(self):
-        if self.current_epoch == 1:
-            # epoch 1+: fc + lora
+        if self.current_epoch == 0:
+            self._set_trainable(train_fc=True, train_lora=False)
+            self.model.module.eval()
+            self.model.module.fc.train()
+        else:
             self._set_trainable(train_fc=True, train_lora=True)
             self.model.module.train()
 
@@ -86,7 +86,7 @@ class LoRaResNet(L.LightningModule):
 
         opt = optim.AdamW(
             [{"params": fc_params, "lr": 3e-3, "weight_decay": 1e-4}, 
-             {"params": lora_params, "lr": 3e-4, "weight_decay": 1e-5}]
+             {"params": lora_params, "lr": 3e-4, "weight_decay": 1e-4}]
             )
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}

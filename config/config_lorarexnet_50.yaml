@@ -1,8 +1,8 @@
 model:
   name: 'LoRaRexNet'
-  rank: 10
+  rank: 50
 
-experiment_name: lora_101
+experiment_name: lora_101_50
 
 training:
   max_epochs: 40

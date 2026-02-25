@@ -1,0 +1,20 @@
+model:
+  name: "RexNet_FullFT"
+  warmup_fc_only: true
+  layers_to_finetune:
+    fc:
+      lr: 3e-3
+      decay: 0.0001
+    backbone:
+      lr: 3e-4
+      decay: 0.0001
+
+experiment_name: resnet_fft_101
+
+training:
+  max_epochs: 40
+  batch_size: 64
+  num_workers: 0
+  
+num_classes: 8
+size: 224
