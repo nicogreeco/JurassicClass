@@ -2,26 +2,24 @@ import lightning as L
 from torch import nn, optim
 import torch
 import torch.nn.functional as F
-from torchvision.models import ResNet18_Weights, resnet18
-from torchvision.models import ResNet34_Weights, resnet34
-from torchvision.models import ResNet50_Weights, resnet50
-from torchvision.models import ResNet101_Weights, resnet101
+from torchgen import model
+from torchvision.models import vit_b_16, ViT_B_16_Weights
 
 class ViTRex_FullFT(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
         super().__init__()
         self.save_hyperparameters(ignore=["config"])
-        self.model_name = "RexNet"
+        self.model_name = "ViTRex_FullFT"
         self.config = config
 
-        weights = ResNet101_Weights.DEFAULT
+        weights = ViT_B_16_Weights.IMAGENET1K_V1
         self.base_tfms = weights.transforms()
 
-        model = resnet101(weights=weights)
+        model = vit_b_16(weights=weights)
 
         # Replace head
-        in_features = model.fc.in_features
-        model.fc = nn.Linear(in_features, num_classes)
+        in_features = model.heads.head.in_features
+        model.heads.head = nn.Linear(in_features, num_classes)
         self.model = model
 
         # Feature extractor (for embeddings)
@@ -42,13 +40,13 @@ class ViTRex_FullFT(L.LightningModule):
         # unfreeze head
         if train_fc:
             for name, p in self.model.named_parameters():
-                if name.startswith("fc."):
+                if name.startswith("heads."):
                     p.requires_grad = True
 
         # unfreeze backbone
         if train_backbone:
             for name, p in self.model.named_parameters():
-                if not name.startswith("fc."):
+                if not name.startswith("heads."):
                     p.requires_grad = True
 
     def on_train_epoch_start(self):
@@ -56,7 +54,7 @@ class ViTRex_FullFT(L.LightningModule):
             # epoch 0: head only, backbone in eval (BN frozen)
             self._set_trainable(train_fc=True, train_backbone=False)
             self.model.eval()
-            self.model.fc.train()
+            self.model.heads.train()
         else:
             # epoch 1+: full fine-tune
             self._set_trainable(train_fc=True, train_backbone=True)
@@ -75,7 +73,7 @@ class ViTRex_FullFT(L.LightningModule):
         return reps.squeeze(-1).squeeze(-1)
 
     def predict_from_latent(self, embeddings):
-        return self.model.fc(embeddings)
+        return self.model.heads(embeddings)
 
     def _step(self, batch):
         x, y = batch

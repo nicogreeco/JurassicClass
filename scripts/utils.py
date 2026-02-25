@@ -20,8 +20,8 @@ from sklearn.manifold import TSNE
 from sklearn.cluster import k_means
 from sklearn.decomposition import PCA
 
-from EfficentRex import EfficentRex
-from RexNet import RexNet
+from .EfficentRex import EfficentRex
+from .RexNet import RexNet
 
 def visualize_image(image_tensor):
     """
