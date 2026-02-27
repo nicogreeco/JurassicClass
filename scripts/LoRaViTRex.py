@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torchgen import model
 from torchvision.models import vit_b_16, ViT_B_16_Weights
+from torchvision.models import vit_l_32, ViT_L_32_Weights
 from lora_pytorch import LoRA
 
 class LoRaViTRex(L.LightningModule):
@@ -13,10 +14,10 @@ class LoRaViTRex(L.LightningModule):
         self.model_name = "LoRaViTRex"
         self.config = config
 
-        weights = ViT_B_16_Weights.IMAGENET1K_V1
+        weights = ViT_L_32_Weights.IMAGENET1K_V1
         self.base_tfms = weights.transforms()
 
-        model = vit_b_16(weights=weights)
+        model = vit_l_32(weights=weights)
 
         # Replace head
         in_features = model.heads.head.in_features

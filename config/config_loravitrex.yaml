@@ -1,7 +1,7 @@
 model:
   name: "LoRaViTRex"
   warmup_fc_only: true
-  rank: 10
+  rank: 5
   layers_to_finetune:
     fc:
       lr: 1e-3
