@@ -2,9 +2,9 @@ import lightning as L
 from torch import nn, optim
 import torch
 import torch.nn.functional as F
-from torchvision.models import ResNet18_Weights, resnet18
-from torchvision.models import ResNet34_Weights, resnet34
-from torchvision.models import ResNet50_Weights, resnet50
+# from torchvision.models import ResNet18_Weights, resnet18
+# from torchvision.models import ResNet34_Weights, resnet34
+# from torchvision.models import ResNet50_Weights, resnet50
 from torchvision.models import ResNet101_Weights, resnet101
 
 class RexNet_FullFT(L.LightningModule):
@@ -88,6 +88,10 @@ class RexNet_FullFT(L.LightningModule):
         loss, acc = self._step(batch)
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
+        
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            mem_mb = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
+            self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):

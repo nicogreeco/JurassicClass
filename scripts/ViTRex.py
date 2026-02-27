@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 from torchgen import model
 from torchvision.models import vit_b_16, ViT_B_16_Weights
+# from torchvision.models import vit_l_32, ViT_L_32_Weights
 
 class ViTRex_FullFT(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
@@ -86,6 +87,10 @@ class ViTRex_FullFT(L.LightningModule):
         loss, acc = self._step(batch)
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
+        
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            mem_mb = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
+            self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)        
         return loss
 
     def validation_step(self, batch, batch_idx):

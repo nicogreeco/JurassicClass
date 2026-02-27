@@ -2,9 +2,9 @@ import lightning as L
 import torch
 from torch import nn, optim
 import torch.nn.functional as F
-from torchvision.models import ResNet18_Weights, resnet18
-from torchvision.models import ResNet34_Weights, resnet34
-from torchvision.models import ResNet50_Weights, resnet50
+# from torchvision.models import ResNet18_Weights, resnet18
+# from torchvision.models import ResNet34_Weights, resnet34
+# from torchvision.models import ResNet50_Weights, resnet50
 from torchvision.models import ResNet101_Weights, resnet101
 from lora_pytorch import LoRA
 
@@ -64,13 +64,17 @@ class LoRaResNet(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=False)
         self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
+
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            mem_mb = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
+            self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)
         return loss
 
     def _eval_step(self, batch, stage: str):
         loss, acc = self._step(batch)
-        self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=False)
         self.log(f"{stage}_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         return {f"{stage}_loss": loss, f"{stage}_acc": acc}
 

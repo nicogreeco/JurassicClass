@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 import numpy as np
 from omegaconf import OmegaConf
 
+import torch
 from torchvision.models import ResNet34_Weights, EfficientNet_V2_S_Weights
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset
@@ -20,7 +21,6 @@ from scripts.utils import letterbox_to_square
 from scripts.EfficentRex import EfficentRex
 from scripts.RexNet import RexNet
 from scripts.LoRaRexNet import LoRaResNet
-
 
 class ValidationTracker(Callback):
     def __init__(self, verbose=False):
@@ -41,6 +41,34 @@ class ValidationTracker(Callback):
             self.best_val_acc = val_acc.item()
             if self.verbose:
                 print(f"New best val_acc: {self.best_val_acc:.4f}")
+
+
+class GpuMemTracker(Callback):
+    """
+    Tracks a single value per fit: peak GPU memory allocated (MB).
+    Works even if your LightningModule does NOT explicitly log gpu_mem_mb.
+    """
+    def __init__(self, verbose=False):
+        self.peak_mb = float("nan")
+        self.verbose = verbose
+
+    def _get_device(self, trainer, pl_module):
+        dev = getattr(getattr(trainer, "strategy", None), "root_device", None)
+        if dev is None:
+            dev = getattr(pl_module, "device", None)
+        return dev
+
+    def on_fit_start(self, trainer, pl_module):
+        dev = self._get_device(trainer, pl_module)
+        if torch.cuda.is_available() and dev is not None and dev.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(dev)
+
+    def on_fit_end(self, trainer, pl_module):
+        dev = self._get_device(trainer, pl_module)
+        if torch.cuda.is_available() and dev is not None and dev.type == "cuda":
+            self.peak_mb = torch.cuda.max_memory_allocated(dev) / (1024 ** 2)
+            if self.verbose:
+                print(f"Peak GPU Memory Usage: {self.peak_mb:.2f} MB")
 
 
 def mean_std(values):
@@ -101,6 +129,7 @@ def run_cross_validation(model_class, base_tfms, config):
         "val_acc": [],
         "test_acc": [],
         "train_time_sec": [],
+        "gpu_mem_mb": [],
     }
     rows = []
 
@@ -136,6 +165,7 @@ def run_cross_validation(model_class, base_tfms, config):
         )
 
         validation_tracker = ValidationTracker()
+        gpu_tracker = GpuMemTracker()
 
         early_stopping_callback = EarlyStopping(
             monitor="val_loss",
@@ -164,7 +194,7 @@ def run_cross_validation(model_class, base_tfms, config):
         trainer = Trainer(
             default_root_dir=str(checkpoint_dir),
             logger=tb_logger,
-            callbacks=[validation_tracker, early_stopping_callback, checkpoint_callback],
+            callbacks=[validation_tracker, gpu_tracker, early_stopping_callback, checkpoint_callback],
             max_epochs=config.training.max_epochs,
             enable_checkpointing=True,
             log_every_n_steps=10,
@@ -177,10 +207,12 @@ def run_cross_validation(model_class, base_tfms, config):
 
         best_val_loss = float(validation_tracker.best_val_loss)
         best_val_acc = float(validation_tracker.best_val_acc)
+        gpu_mem_usage = float(gpu_tracker.peak_mb)
 
         fold_results["val_loss"].append(best_val_loss)
         fold_results["val_acc"].append(best_val_acc)
         fold_results["train_time_sec"].append(train_time_sec)
+        fold_results["gpu_mem_mb"].append(gpu_mem_usage)
 
         # -------- Test best checkpoint --------
         test_acc = float("nan")
@@ -215,6 +247,7 @@ def run_cross_validation(model_class, base_tfms, config):
             "val_acc": best_val_acc,
             "test_acc": test_acc,
             "train_time_sec": train_time_sec,
+            "gpu_mem_mb": gpu_mem_usage,
         })
 
         print("-----------------------------------------------------------")
@@ -222,6 +255,7 @@ def run_cross_validation(model_class, base_tfms, config):
         print(f"Best val acc : {best_val_acc:.4f}")
         print(f"Test acc     : {test_acc:.4f}" if not np.isnan(test_acc) else "Test acc     : NaN")
         print(f"Train time   : {fmt_seconds(train_time_sec)} ({train_time_sec:.1f}s)")
+        print(f"Peak GPU mem : {gpu_mem_usage:.2f} MB" if not np.isnan(gpu_mem_usage) else "Peak GPU mem : NaN")
         print("===========================================================")
 
     # -------- Summary --------
@@ -229,6 +263,7 @@ def run_cross_validation(model_class, base_tfms, config):
     val_acc_mean, val_acc_std = mean_std(fold_results["val_acc"])
     test_acc_mean, test_acc_std = mean_std(fold_results["test_acc"])
     train_time_mean, train_time_std = mean_std(fold_results["train_time_sec"])
+    gpu_mem_mean, gpu_mem_std = mean_std(fold_results["gpu_mem_mb"])
 
     print("\n===========================================================")
     print("Cross-validation summary")
@@ -253,6 +288,12 @@ def run_cross_validation(model_class, base_tfms, config):
     for i, v in enumerate(fold_results["train_time_sec"]):
         print(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})")
     print(f"  Mean ± Std: {train_time_mean:.1f}s ± {train_time_std:.1f}s")
+
+    print("\nPeak GPU Memory (MB):")
+    for i, v in enumerate(fold_results["gpu_mem_mb"]):
+        print(f"  Fold {i}: {v:.2f} MB" if not np.isnan(v) else f"  Fold {i}: NaN")
+    print(f"  Mean ± Std: {gpu_mem_mean:.2f} ± {gpu_mem_std:.2f} MB")
+
     print("===========================================================")
 
     # -------- Save CSV table --------
@@ -260,7 +301,7 @@ def run_cross_validation(model_class, base_tfms, config):
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["fold", "best_ckpt", "val_loss", "val_acc", "test_acc", "train_time_sec"]
+            fieldnames=["fold", "best_ckpt", "val_loss", "val_acc", "test_acc", "train_time_sec", "gpu_mem_mb"]
         )
         writer.writeheader()
 
@@ -274,6 +315,7 @@ def run_cross_validation(model_class, base_tfms, config):
             "val_acc": val_acc_mean,
             "test_acc": test_acc_mean,
             "train_time_sec": train_time_mean,
+            "gpu_mem_mb": gpu_mem_mean,
         })
         writer.writerow({
             "fold": "std",
@@ -282,6 +324,7 @@ def run_cross_validation(model_class, base_tfms, config):
             "val_acc": val_acc_std,
             "test_acc": test_acc_std,
             "train_time_sec": train_time_std,
+            "gpu_mem_mb": gpu_mem_std,
         })
 
     # -------- Save readable log --------
@@ -310,6 +353,11 @@ def run_cross_validation(model_class, base_tfms, config):
         for i, v in enumerate(fold_results["train_time_sec"]):
             f.write(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})\n")
         f.write(f"  Mean ± Std: {train_time_mean:.1f}s ± {train_time_std:.1f}s\n")
+
+        f.write("\nPeak GPU Memory (MB):\n")
+        for i, v in enumerate(fold_results["gpu_mem_mb"]):
+            f.write(f"  Fold {i}: {v:.2f} MB\n" if not np.isnan(v) else f"  Fold {i}: NaN\n")
+        f.write(f"  Mean ± Std: {gpu_mem_mean:.2f} ± {gpu_mem_std:.2f} MB\n")
 
         f.write("===========================================================\n")
 

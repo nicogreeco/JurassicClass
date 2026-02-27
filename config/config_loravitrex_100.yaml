@@ -1,7 +1,7 @@
 model:
   name: "LoRaViTRex"
   warmup_fc_only: true
-  rank: 10
+  rank: 100
   layers_to_finetune:
     fc:
       lr: 1e-3
@@ -10,7 +10,7 @@ model:
       lr: 1e-4
       decay: 0.001
 
-experiment_name: loravitrex_b_10
+experiment_name: loravitrex_b_100
 
 training:
   max_epochs: 40
