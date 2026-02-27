@@ -1,7 +1,7 @@
 import csv
 import time
-from pathlib import Path
 from argparse import ArgumentParser
+from pathlib import Path
 
 import numpy as np
 from omegaconf import OmegaConf
@@ -16,11 +16,11 @@ from lightning import Trainer, Callback
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 
-from scripts.RexNet_FullFT import RexNet_FullFT
 from scripts.utils import letterbox_to_square
-from scripts.EfficentRex import EfficentRex
-from scripts.RexNet import RexNet
-from scripts.LoRaRexNet import LoRaResNet
+
+
+WARMUP_EPOCHS = 4  # exclude epochs 0..3 from avg epoch time
+
 
 class ValidationTracker(Callback):
     def __init__(self, verbose=False):
@@ -29,6 +29,9 @@ class ValidationTracker(Callback):
         self.verbose = verbose
 
     def on_validation_epoch_end(self, trainer, pl_module):
+        if getattr(trainer, "sanity_checking", False):
+            return
+
         val_loss = trainer.callback_metrics.get("val_loss")
         val_acc = trainer.callback_metrics.get("val_acc")
 
@@ -44,10 +47,7 @@ class ValidationTracker(Callback):
 
 
 class GpuMemTracker(Callback):
-    """
-    Tracks a single value per fit: peak GPU memory allocated (MB).
-    Works even if your LightningModule does NOT explicitly log gpu_mem_mb.
-    """
+    """Tracks a single value per fit: peak GPU memory allocated (MB)."""
     def __init__(self, verbose=False):
         self.peak_mb = float("nan")
         self.verbose = verbose
@@ -69,6 +69,59 @@ class GpuMemTracker(Callback):
             self.peak_mb = torch.cuda.max_memory_allocated(dev) / (1024 ** 2)
             if self.verbose:
                 print(f"Peak GPU Memory Usage: {self.peak_mb:.2f} MB")
+
+
+class EpochTimeTracker(Callback):
+    """
+    Measures per-epoch wall time (train epoch + validation) and computes
+    avg epoch time excluding warmup epochs (0..warmup_epochs-1).
+    """
+    def __init__(self, warmup_epochs=4, verbose=False):
+        self.warmup_epochs = int(warmup_epochs)
+        self.verbose = verbose
+        self._t0 = None
+
+        self.epoch_times_sec_all = []      # all epochs (incl warmup)
+        self.epoch_times_sec_timed = []    # epochs >= warmup_epochs only
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        if getattr(trainer, "sanity_checking", False):
+            return
+        self._t0 = time.perf_counter()
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        # end-of-epoch timing after validation completes
+        if getattr(trainer, "sanity_checking", False):
+            return
+        if self._t0 is None:
+            return
+
+        dt = time.perf_counter() - self._t0
+        self._t0 = None
+
+        epoch_idx = int(trainer.current_epoch)
+        self.epoch_times_sec_all.append(dt)
+
+        if epoch_idx >= self.warmup_epochs:
+            self.epoch_times_sec_timed.append(dt)
+
+        if self.verbose:
+            tag = "TIMED" if epoch_idx >= self.warmup_epochs else "warmup"
+            print(f"Epoch {epoch_idx} time ({tag}): {dt:.2f}s")
+
+    @property
+    def avg_epoch_time_sec_excl_warmup(self) -> float:
+        if not self.epoch_times_sec_timed:
+            return float("nan")
+        return float(np.mean(self.epoch_times_sec_timed))
+
+    @property
+    def epochs_trained_total(self) -> int:
+        return len(self.epoch_times_sec_all)
+
+    @property
+    def epochs_timed(self) -> int:
+        return len(self.epoch_times_sec_timed)
 
 
 def mean_std(values):
@@ -128,7 +181,9 @@ def run_cross_validation(model_class, base_tfms, config):
         "val_loss": [],
         "val_acc": [],
         "test_acc": [],
-        "train_time_sec": [],
+        "avg_epoch_time_sec": [],     # avg epoch time excluding warmup
+        "epochs_trained": [],         # total epochs actually run (incl warmup)
+        "epochs_timed": [],           # epochs counted in avg (excl warmup)
         "gpu_mem_mb": [],
     }
     rows = []
@@ -166,11 +221,12 @@ def run_cross_validation(model_class, base_tfms, config):
 
         validation_tracker = ValidationTracker()
         gpu_tracker = GpuMemTracker()
+        epoch_time_tracker = EpochTimeTracker(warmup_epochs=WARMUP_EPOCHS)
 
         early_stopping_callback = EarlyStopping(
             monitor="val_loss",
             mode="min",
-            patience=40,
+            patience=12,
         )
 
         checkpoint_dir = base_out_dir / f"fold_{fold}"
@@ -182,6 +238,7 @@ def run_cross_validation(model_class, base_tfms, config):
             save_top_k=1,
             monitor="val_loss",
             mode="min",
+            save_last=False,
         )
 
         tb_logger = TensorBoardLogger(
@@ -194,24 +251,28 @@ def run_cross_validation(model_class, base_tfms, config):
         trainer = Trainer(
             default_root_dir=str(checkpoint_dir),
             logger=tb_logger,
-            callbacks=[validation_tracker, gpu_tracker, early_stopping_callback, checkpoint_callback],
+            callbacks=[validation_tracker, gpu_tracker, epoch_time_tracker, early_stopping_callback, checkpoint_callback],
             max_epochs=config.training.max_epochs,
             enable_checkpointing=True,
             log_every_n_steps=10,
         )
 
-        # -------- Train (timed) --------
-        train_start = time.perf_counter()
+        # -------- Train --------
         trainer.fit(model=model, train_dataloaders=train_loader, val_dataloaders=val_loader)
-        train_time_sec = time.perf_counter() - train_start
 
         best_val_loss = float(validation_tracker.best_val_loss)
         best_val_acc = float(validation_tracker.best_val_acc)
         gpu_mem_usage = float(gpu_tracker.peak_mb)
 
+        avg_epoch_time_sec = float(epoch_time_tracker.avg_epoch_time_sec_excl_warmup)
+        epochs_trained = int(epoch_time_tracker.epochs_trained_total)
+        epochs_timed = int(epoch_time_tracker.epochs_timed)
+
         fold_results["val_loss"].append(best_val_loss)
         fold_results["val_acc"].append(best_val_acc)
-        fold_results["train_time_sec"].append(train_time_sec)
+        fold_results["avg_epoch_time_sec"].append(avg_epoch_time_sec)
+        fold_results["epochs_trained"].append(epochs_trained)
+        fold_results["epochs_timed"].append(epochs_timed)
         fold_results["gpu_mem_mb"].append(gpu_mem_usage)
 
         # -------- Test best checkpoint --------
@@ -240,30 +301,48 @@ def run_cross_validation(model_class, base_tfms, config):
 
         best_ckpt_path = checkpoint_callback.best_model_path
 
+        # delete best checkpoint after test
+        if trainer.is_global_zero and best_ckpt_path:
+            p = Path(best_ckpt_path)
+            if p.exists():
+                p.unlink()
+
         rows.append({
             "fold": fold,
             "best_ckpt": best_ckpt_path,
             "val_loss": best_val_loss,
             "val_acc": best_val_acc,
             "test_acc": test_acc,
-            "train_time_sec": train_time_sec,
+            "avg_epoch_time_sec": avg_epoch_time_sec,
+            "epochs_trained": epochs_trained,
+            "epochs_timed": epochs_timed,
             "gpu_mem_mb": gpu_mem_usage,
         })
 
         print("-----------------------------------------------------------")
-        print(f"Best val loss: {best_val_loss:.4f}")
-        print(f"Best val acc : {best_val_acc:.4f}")
-        print(f"Test acc     : {test_acc:.4f}" if not np.isnan(test_acc) else "Test acc     : NaN")
-        print(f"Train time   : {fmt_seconds(train_time_sec)} ({train_time_sec:.1f}s)")
-        print(f"Peak GPU mem : {gpu_mem_usage:.2f} MB" if not np.isnan(gpu_mem_usage) else "Peak GPU mem : NaN")
+        print(f"Best val loss     : {best_val_loss:.4f}")
+        print(f"Best val acc      : {best_val_acc:.4f}")
+        print(f"Test acc          : {test_acc:.4f}" if not np.isnan(test_acc) else "Test acc          : NaN")
+        print(f"Epochs trained    : {epochs_trained} (warmup excluded from timing: {WARMUP_EPOCHS})")
+        print(f"Timed epochs      : {epochs_timed}")
+
+        if not np.isnan(avg_epoch_time_sec):
+            print(f"Avg epoch time    : {fmt_seconds(avg_epoch_time_sec)} ({avg_epoch_time_sec:.1f}s)  [excl warmup]")
+        else:
+            print("Avg epoch time    : NaN  [excl warmup]")
+
+        print(f"Peak GPU mem      : {gpu_mem_usage:.2f} MB" if not np.isnan(gpu_mem_usage) else "Peak GPU mem      : NaN")
         print("===========================================================")
 
     # -------- Summary --------
     val_loss_mean, val_loss_std = mean_std(fold_results["val_loss"])
     val_acc_mean, val_acc_std = mean_std(fold_results["val_acc"])
     test_acc_mean, test_acc_std = mean_std(fold_results["test_acc"])
-    train_time_mean, train_time_std = mean_std(fold_results["train_time_sec"])
+    avg_epoch_time_mean, avg_epoch_time_std = mean_std(fold_results["avg_epoch_time_sec"])
     gpu_mem_mean, gpu_mem_std = mean_std(fold_results["gpu_mem_mb"])
+
+    epochs_trained_mean, epochs_trained_std = mean_std(fold_results["epochs_trained"])
+    epochs_timed_mean, epochs_timed_std = mean_std(fold_results["epochs_timed"])
 
     print("\n===========================================================")
     print("Cross-validation summary")
@@ -284,10 +363,13 @@ def run_cross_validation(model_class, base_tfms, config):
         print(f"  Fold {i}: {v:.4f}" if not np.isnan(v) else f"  Fold {i}: NaN")
     print(f"  Mean ± Std: {test_acc_mean:.4f} ± {test_acc_std:.4f}")
 
-    print("\nTraining Time (seconds):")
-    for i, v in enumerate(fold_results["train_time_sec"]):
-        print(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})")
-    print(f"  Mean ± Std: {train_time_mean:.1f}s ± {train_time_std:.1f}s")
+    print(f"\nEpochs trained (total, incl warmup): mean ± std = {epochs_trained_mean:.2f} ± {epochs_trained_std:.2f}")
+    print(f"Timed epochs (excl first {WARMUP_EPOCHS}): mean ± std = {epochs_timed_mean:.2f} ± {epochs_timed_std:.2f}")
+
+    print(f"\nAvg Epoch Time (seconds) [excl first {WARMUP_EPOCHS} epochs]:")
+    for i, v in enumerate(fold_results["avg_epoch_time_sec"]):
+        print(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})" if not np.isnan(v) else f"  Fold {i}: NaN")
+    print(f"  Mean ± Std: {avg_epoch_time_mean:.1f}s ± {avg_epoch_time_std:.1f}s")
 
     print("\nPeak GPU Memory (MB):")
     for i, v in enumerate(fold_results["gpu_mem_mb"]):
@@ -301,7 +383,17 @@ def run_cross_validation(model_class, base_tfms, config):
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["fold", "best_ckpt", "val_loss", "val_acc", "test_acc", "train_time_sec", "gpu_mem_mb"]
+            fieldnames=[
+                "fold",
+                "best_ckpt",
+                "val_loss",
+                "val_acc",
+                "test_acc",
+                "avg_epoch_time_sec",
+                "epochs_trained",
+                "epochs_timed",
+                "gpu_mem_mb",
+            ],
         )
         writer.writeheader()
 
@@ -314,7 +406,9 @@ def run_cross_validation(model_class, base_tfms, config):
             "val_loss": val_loss_mean,
             "val_acc": val_acc_mean,
             "test_acc": test_acc_mean,
-            "train_time_sec": train_time_mean,
+            "avg_epoch_time_sec": avg_epoch_time_mean,
+            "epochs_trained": epochs_trained_mean,
+            "epochs_timed": epochs_timed_mean,
             "gpu_mem_mb": gpu_mem_mean,
         })
         writer.writerow({
@@ -323,7 +417,9 @@ def run_cross_validation(model_class, base_tfms, config):
             "val_loss": val_loss_std,
             "val_acc": val_acc_std,
             "test_acc": test_acc_std,
-            "train_time_sec": train_time_std,
+            "avg_epoch_time_sec": avg_epoch_time_std,
+            "epochs_trained": epochs_trained_std,
+            "epochs_timed": epochs_timed_std,
             "gpu_mem_mb": gpu_mem_std,
         })
 
@@ -349,10 +445,13 @@ def run_cross_validation(model_class, base_tfms, config):
             f.write(f"  Fold {i}: {v:.4f}\n" if not np.isnan(v) else f"  Fold {i}: NaN\n")
         f.write(f"  Mean ± Std: {test_acc_mean:.4f} ± {test_acc_std:.4f}\n")
 
-        f.write("\nTraining Time (seconds):\n")
-        for i, v in enumerate(fold_results["train_time_sec"]):
-            f.write(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})\n")
-        f.write(f"  Mean ± Std: {train_time_mean:.1f}s ± {train_time_std:.1f}s\n")
+        f.write(f"\nEpochs trained (total, incl warmup): mean ± std = {epochs_trained_mean:.2f} ± {epochs_trained_std:.2f}\n")
+        f.write(f"Timed epochs (excl first {WARMUP_EPOCHS}): mean ± std = {epochs_timed_mean:.2f} ± {epochs_timed_std:.2f}\n")
+
+        f.write(f"\nAvg Epoch Time (seconds) [excl first {WARMUP_EPOCHS} epochs]:\n")
+        for i, v in enumerate(fold_results["avg_epoch_time_sec"]):
+            f.write(f"  Fold {i}: {v:.1f}s ({fmt_seconds(v)})\n" if not np.isnan(v) else f"  Fold {i}: NaN\n")
+        f.write(f"  Mean ± Std: {avg_epoch_time_mean:.1f}s ± {avg_epoch_time_std:.1f}s\n")
 
         f.write("\nPeak GPU Memory (MB):\n")
         for i, v in enumerate(fold_results["gpu_mem_mb"]):
@@ -368,17 +467,35 @@ def run_cross_validation(model_class, base_tfms, config):
 def main(config):
     match config.model.name:
         case "RexNet":
+            from scripts.RexNet import RexNet
             model_class = RexNet
             base_tfms = ResNet34_Weights.DEFAULT.transforms()
+
         case "EfficentRex":
+            from scripts.EfficentRex import EfficentRex
             model_class = EfficentRex
             base_tfms = EfficientNet_V2_S_Weights.DEFAULT.transforms()
+
         case "LoRaRexNet":
+            from scripts.LoRaRexNet import LoRaResNet
             model_class = LoRaResNet
             base_tfms = ResNet34_Weights.DEFAULT.transforms()
+
         case "RexNet_FullFT":
+            from scripts.RexNet_FullFT import RexNet_FullFT
             model_class = RexNet_FullFT
             base_tfms = ResNet34_Weights.DEFAULT.transforms()
+
+        case "LoRaViTRex":
+            from scripts.LoRaViTRex import LoRaViTRex
+            model_class = LoRaViTRex
+            base_tfms = ResNet34_Weights.DEFAULT.transforms()
+
+        case "ViTRex_FullFT":
+            from scripts.ViTRex import ViTRex_FullFT
+            model_class = ViTRex_FullFT
+            base_tfms = ResNet34_Weights.DEFAULT.transforms()
+
         case _:
             raise ValueError(f"Unknown model name: {config.model.name}")
 
@@ -387,11 +504,7 @@ def main(config):
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="./config.yaml",
-    )
+    parser.add_argument("--config", type=str, default="./config.yaml")
     args = parser.parse_args()
     config = OmegaConf.load(args.config)
     main(config)
