@@ -72,25 +72,64 @@ class LoRaResNet(L.LightningModule):
             self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)
         return loss
 
-    def _eval_step(self, batch, stage: str):
-        loss, acc = self._step(batch)
-        self.log(f"{stage}_loss", loss, prog_bar=True, on_step=False, on_epoch=False)
-        self.log(f"{stage}_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
-        return {f"{stage}_loss": loss, f"{stage}_acc": acc}
-
     def validation_step(self, batch, batch_idx):
-        return self._eval_step(batch, "val")
+        loss, acc = self._step(batch)
+        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
-        return self._eval_step(batch, "test")
+        loss, acc = self._step(batch)
+        self.log("test_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("test_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
+        return {"test_loss": loss, "test_acc": acc}
         
     def configure_optimizers(self):
-        lora_params = [p for n, p in self.model.named_parameters() if ".lora_module." in n]
-        fc_params   = [p for n, p in self.model.named_parameters() if n.startswith("module.fc.")]
+        """
+        Expects config.layers_to_finetune with two keys:
+          - fc: {lr: ..., decay: ...}
+          - backbone: {lr: ..., decay: ...}
+        Example:
+          layers_to_finetune:
+            fc: {lr: 5e-3, decay: 1e-4}
+            backbone: {lr: 5e-4, decay: 1e-2}
+        """
+        if not hasattr(self.config, "layers_to_finetune"):
+            raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
 
-        opt = optim.AdamW(
-            [{"params": fc_params, "lr": 3e-3, "weight_decay": 1e-4}, 
-             {"params": lora_params, "lr": 3e-4, "weight_decay": 1e-4}]
-            )
+        if "fc" not in self.config.layers_to_finetune or "backbone" not in self.config.layers_to_finetune:
+            raise ValueError("layers_to_finetune must contain keys: 'fc' and 'backbone'.")
+
+        fc_hp = self.config.layers_to_finetune["fc"]
+        bb_hp = self.config.layers_to_finetune["backbone"]
+
+        def split_decay(params_with_names):
+            wd_params, no_wd_params = [], []
+            for name, p in params_with_names:
+                if not p.requires_grad:
+                    continue
+                if name.endswith("bias") or "bn" in name.lower() or "norm" in name.lower():
+                    no_wd_params.append(p)
+                else:
+                    wd_params.append(p)
+            return wd_params, no_wd_params
+
+        fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
+        bb_named = [(n, p) for n, p in self.model.named_parameters() if ".lora_module." in n.lower()]
+
+        fc_wd, fc_no_wd = split_decay(fc_named)
+        bb_wd, bb_no_wd = split_decay(bb_named)
+
+        param_groups = []
+        if fc_wd:
+            param_groups.append({"params": fc_wd, "lr": float(fc_hp["lr"]), "weight_decay": float(fc_hp["decay"])})
+        if fc_no_wd:
+            param_groups.append({"params": fc_no_wd, "lr": float(fc_hp["lr"]), "weight_decay": 0.0})
+
+        if bb_wd:
+            param_groups.append({"params": bb_wd, "lr": float(bb_hp["lr"]), "weight_decay": float(bb_hp["decay"])})
+        if bb_no_wd:
+            param_groups.append({"params": bb_no_wd, "lr": float(bb_hp["lr"]), "weight_decay": 0.0})
+
+        opt = optim.AdamW(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}

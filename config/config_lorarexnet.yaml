@@ -1,8 +1,16 @@
 model:
   name: 'LoRaRexNet'
+  warmup_fc_only: true
   rank: 10
+  layers_to_finetune:
+    fc:
+      lr: 3e-3
+      decay: 0.0001
+    backbone:
+      lr: 3e-4
+      decay: 0.0001
 
-experiment_name: lora_101
+experiment_name: lora_101_10
 
 training:
   max_epochs: 40

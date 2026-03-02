@@ -56,11 +56,6 @@ class ViTRex_FullFT(L.LightningModule):
             self._set_trainable(train_fc=True, train_backbone=True)
             self.model.train()
         
-        print(f"Epoch {self.current_epoch} - Trainable parameters:")
-        for name, p in self.model.named_parameters():
-                if p.requires_grad:
-                    print(name)
-
     def forward(self, x):
         return self.model(x)
 
