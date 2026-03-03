@@ -1,16 +1,16 @@
 model:
   name: 'LoRaRexNet'
   warmup_fc_only: true
-  rank: 50
+  rank: 100
   layers_to_finetune:
     fc:
       lr: 3e-3
       decay: 0.0001
-    layer4:
+    backbone:
       lr: 3e-4
       decay: 0.0001
 
-experiment_name: lorarexnet_101_50_layer4
+experiment_name: lorarexnet_101_100
 
 training:
   max_epochs: 40

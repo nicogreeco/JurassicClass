@@ -35,6 +35,8 @@ class RexNet_FullFT(L.LightningModule):
         self.warmup_fc_only = bool(getattr(config, "warmup_fc_only", True))
 
     def _set_trainable(self, train_fc: bool, train_backbone: bool):
+        layers_to_finetune = [k for k in self.config.layers_to_finetune.keys()
+                                if k != "fc"]
         # freeze all
         for p in self.model.parameters():
             p.requires_grad = False
@@ -48,7 +50,7 @@ class RexNet_FullFT(L.LightningModule):
         # unfreeze backbone
         if train_backbone:
             for name, p in self.model.named_parameters():
-                if not name.startswith("fc."):
+                if any(layer in name for layer in layers_to_finetune):
                     p.requires_grad = True
 
     def on_train_epoch_start(self):

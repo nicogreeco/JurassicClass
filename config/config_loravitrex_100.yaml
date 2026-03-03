@@ -6,11 +6,21 @@ model:
     fc:
       lr: 1e-3
       decay: 0.01
-    backbone:
+    encoder_layer_8:
+      lr: 1e-4
+      decay: 0.001
+    encoder_layer_9:
+      lr: 1e-4
+      decay: 0.001
+    encoder_layer_10:
+      lr: 1e-4
+      decay: 0.001
+    encoder_layer_11:
       lr: 1e-4
       decay: 0.001
 
-experiment_name: loravitrex_b_100
+
+experiment_name: loravitrex_b_100_layers
 
 training:
   max_epochs: 40

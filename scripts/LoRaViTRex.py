@@ -29,6 +29,8 @@ class LoRaViTRex(L.LightningModule):
         self.warmup_fc_only = bool(getattr(config, "warmup_fc_only", True))
 
     def _set_trainable(self, train_fc: bool, train_lora: bool):
+        layers_to_finetune = self.config.layers_to_finetune.keys()
+        
         # freeze all
         for p in self.model.parameters():
             p.requires_grad = False
@@ -42,7 +44,7 @@ class LoRaViTRex(L.LightningModule):
         # unfreeze lora
         if train_lora:
             for name, p in self.model.named_parameters():
-                if ".lora_module." in name:
+                if ".lora_module." in name and any(layer in name for layer in layers_to_finetune):
                     p.requires_grad = True
 
     def on_train_epoch_start(self):
@@ -68,17 +70,17 @@ class LoRaViTRex(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("train_acc", acc, prog_bar=False, on_step=True, on_epoch=True)
         
         if torch.cuda.is_available() and self.device.type == "cuda":
             mem_mb = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
-            self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)
+            self.log("gpu_mem_mb", mem_mb, prog_bar=False, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_loss", loss, prog_bar=False, on_step=False, on_epoch=True)
         self.log("val_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
@@ -97,15 +99,7 @@ class LoRaViTRex(L.LightningModule):
             fc: {lr: 5e-3, decay: 1e-4}
             backbone: {lr: 5e-4, decay: 1e-2}
         """
-        if not hasattr(self.config, "layers_to_finetune"):
-            raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
-
-        if "fc" not in self.config.layers_to_finetune or "backbone" not in self.config.layers_to_finetune:
-            raise ValueError("layers_to_finetune must contain keys: 'fc' and 'backbone'.")
-
-        fc_hp = self.config.layers_to_finetune["fc"]
-        bb_hp = self.config.layers_to_finetune["backbone"]
-
+        
         def split_decay(params_with_names):
             wd_params, no_wd_params = [], []
             for name, p in params_with_names:
@@ -116,23 +110,67 @@ class LoRaViTRex(L.LightningModule):
                 else:
                     wd_params.append(p)
             return wd_params, no_wd_params
-
-        fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
-        bb_named = [(n, p) for n, p in self.model.named_parameters() if ".lora_module." in n.lower()]
-
-        fc_wd, fc_no_wd = split_decay(fc_named)
-        bb_wd, bb_no_wd = split_decay(bb_named)
+        
+        if not hasattr(self.config, "layers_to_finetune"):
+            raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
 
         param_groups = []
-        if fc_wd:
-            param_groups.append({"params": fc_wd, "lr": float(fc_hp["lr"]), "weight_decay": float(fc_hp["decay"])})
-        if fc_no_wd:
-            param_groups.append({"params": fc_no_wd, "lr": float(fc_hp["lr"]), "weight_decay": 0.0})
+             
+        for layer, hyperparms in self.config.layers_to_finetune.items():
+            if layer == "fc":
+                fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
+                fc_wd, fc_no_wd = split_decay(fc_named)  
+                if fc_wd:
+                    param_groups.append({
+                        "params": fc_wd, 
+                        "lr": float(hyperparms["lr"]), 
+                        "weight_decay": float(hyperparms["decay"])
+                        })
+                if fc_no_wd:
+                    param_groups.append({
+                        "params": fc_no_wd, 
+                        "lr": float(hyperparms["lr"]), 
+                        "weight_decay": 0.0
+                        })
+                      
+            elif layer == "backbone":
+                bb_named = [(n, p) for n, p in self.model.named_parameters() if ".lora_module." in n.lower() and ".head." not in n.lower()]
+                bb_wd, bb_no_wd = split_decay(bb_named)
+                if bb_wd:
+                    param_groups.append({
+                        "params": bb_wd, 
+                        "lr": float(hyperparms["lr"]), 
+                        "weight_decay": float(hyperparms["decay"])
+                        })
+                if bb_no_wd:
+                    param_groups.append({
+                        "params": bb_no_wd, 
+                        "lr": float(hyperparms["lr"]), 
+                        "weight_decay": 0.0})
+     
+            else:
+                named_group_params = [
+                    (n, p) for n, p in self.model.named_parameters()
+                    if layer in n.lower() and ".lora_module." in n.lower()
+                ]
+                
+                if not named_group_params:
+                    raise ValueError(f"No parameters matched for layer prefix '{layer}'")
 
-        if bb_wd:
-            param_groups.append({"params": bb_wd, "lr": float(bb_hp["lr"]), "weight_decay": float(bb_hp["decay"])})
-        if bb_no_wd:
-            param_groups.append({"params": bb_no_wd, "lr": float(bb_hp["lr"]), "weight_decay": 0.0})
+                weights_group_params, no_decay_group_params = split_decay(named_group_params)
+
+                if weights_group_params:
+                    param_groups.append({
+                        'params': weights_group_params,
+                        'lr': float(hyperparms['lr']),
+                        'weight_decay': float(hyperparms['decay']),
+                    })
+                if no_decay_group_params:
+                    param_groups.append({
+                        'params': no_decay_group_params,
+                        'lr': float(hyperparms['lr']),
+                        'weight_decay': 0.0,
+                    })
 
         opt = optim.AdamW(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)

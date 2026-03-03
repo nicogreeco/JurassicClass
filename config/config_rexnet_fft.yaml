@@ -5,11 +5,11 @@ model:
     fc:
       lr: 3e-3
       decay: 0.0001
-    backbone:
+    layer4:
       lr: 3e-4
       decay: 0.0001
 
-experiment_name: resnet_fft_101
+experiment_name: resnet_fft_101_layer4
 
 training:
   max_epochs: 40
