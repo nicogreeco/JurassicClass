@@ -58,7 +58,7 @@ class ViTRex_FullFT(L.LightningModule):
                         p.requires_grad = True
 
     def on_fit_start(self):
-        if self.current_epoch <= 3 and self.warmup_fc_only:
+        if self.warmup_fc_only:
             self._set_trainable(train_fc=True, train_backbone=False)
             self.model.eval()
             self.model.heads.train()
@@ -119,8 +119,6 @@ class ViTRex_FullFT(L.LightningModule):
         def split_decay(params_with_names):
             wd_params, no_wd_params = [], []
             for name, p in params_with_names:
-                if not p.requires_grad:
-                    continue
                 n = name.lower()
                 if name.endswith("bias") or "bn" in n or "norm" in n:
                     no_wd_params.append(p)

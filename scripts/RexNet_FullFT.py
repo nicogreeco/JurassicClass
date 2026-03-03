@@ -60,16 +60,16 @@ class RexNet_FullFT(L.LightningModule):
                         p.requires_grad = True
 
     def on_fit_start(self):
-        if self.current_epoch == 0 and self.warmup_fc_only:
-            self._set_trainable(train_fc=True, train_backbone=False)
+        if self.warmup_fc_only:
+            self._set_trainable(train_fc=True, train_backbone=False)  # or train_lora=False
             self.model.eval()
             self.model.fc.train()
         else:
             self._set_trainable(train_fc=True, train_backbone=True)
             self.model.train()
-
+            
     def on_train_epoch_start(self):
-        if self.current_epoch == 0 and self.warmup_fc_only:
+        if self.current_epoch <= 1 and self.warmup_fc_only:
             self._set_trainable(train_fc=True, train_backbone=False)
             self.model.eval()
             self.model.fc.train()
@@ -133,8 +133,6 @@ class RexNet_FullFT(L.LightningModule):
         def split_decay(params_with_names):
             wd_params, no_wd_params = [], []
             for name, p in params_with_names:
-                if not p.requires_grad:
-                    continue
                 n = name.lower()
                 if name.endswith("bias") or "bn" in n or "norm" in n:
                     no_wd_params.append(p)

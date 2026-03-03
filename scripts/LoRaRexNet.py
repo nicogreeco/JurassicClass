@@ -108,75 +108,55 @@ class LoRaResNet(L.LightningModule):
         self.log("test_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
         return {"test_loss": loss, "test_acc": acc}
 
-    def configure_optimizers(self):
-        def split_decay(params_with_names):
-            wd_params, no_wd_params = [], []
-            for name, p in params_with_names:
-                if not p.requires_grad:
-                    continue
-                n = name.lower()
-                if name.endswith("bias") or "bn" in n or "norm" in n:
-                    no_wd_params.append(p)
-                else:
-                    wd_params.append(p)
-            return wd_params, no_wd_params
-
-        if not hasattr(self.config, "layers_to_finetune"):
-            raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
-
-        param_groups = []
-
-        for layer, hyperparms in self.config.layers_to_finetune.items():
-            layer_l = layer.lower()
-
-            if layer_l == "fc":
-                fc_named = [(n, p) for n, p in self.model.named_parameters() if ".fc." in n.lower()]
-                fc_wd, fc_no_wd = split_decay(fc_named)
-                if fc_wd:
-                    param_groups.append(
-                        {"params": fc_wd, "lr": float(hyperparms["lr"]), "weight_decay": float(hyperparms["decay"])}
-                    )
-                if fc_no_wd:
-                    param_groups.append({"params": fc_no_wd, "lr": float(hyperparms["lr"]), "weight_decay": 0.0})
-
-            elif layer_l == "backbone":
-                bb_named = [
-                    (n, p)
-                    for n, p in self.model.named_parameters()
-                    if ".lora_module." in n.lower() and ".fc." not in n.lower()
-                ]
-                bb_wd, bb_no_wd = split_decay(bb_named)
-                if bb_wd:
-                    param_groups.append(
-                        {"params": bb_wd, "lr": float(hyperparms["lr"]), "weight_decay": float(hyperparms["decay"])}
-                    )
-                if bb_no_wd:
-                    param_groups.append({"params": bb_no_wd, "lr": float(hyperparms["lr"]), "weight_decay": 0.0})
-
+def configure_optimizers(self):
+    def split_decay(params_with_names):
+        wd_params, no_wd_params = [], []
+        for name, p in params_with_names:
+            n = name.lower()
+            if name.endswith("bias") or "bn" in n or "norm" in n:
+                no_wd_params.append(p)
             else:
-                key = layer_l
-                named_group_params = [
-                    (n, p)
-                    for n, p in self.model.named_parameters()
-                    if ".lora_module." in n.lower() and key in n.lower()
-                ]
-                if not named_group_params:
-                    raise ValueError(f"No parameters matched for layer key '{layer}'")
+                wd_params.append(p)
+        return wd_params, no_wd_params
 
-                weights_group_params, no_decay_group_params = split_decay(named_group_params)
-                if weights_group_params:
-                    param_groups.append(
-                        {
-                            "params": weights_group_params,
-                            "lr": float(hyperparms["lr"]),
-                            "weight_decay": float(hyperparms["decay"]),
-                        }
-                    )
-                if no_decay_group_params:
-                    param_groups.append(
-                        {"params": no_decay_group_params, "lr": float(hyperparms["lr"]), "weight_decay": 0.0}
-                    )
+    if not hasattr(self.config, "layers_to_finetune"):
+        raise ValueError("config.layers_to_finetune is required.")
 
-        opt = optim.AdamW(param_groups)
-        sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
-        return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
+    param_groups = []
+
+    for layer, hyperparms in self.config.layers_to_finetune.items():
+        layer_l = layer.lower()
+
+        if layer_l == "fc":
+            fc_named = [(n, p) for n, p in self.model.named_parameters() if ".fc." in n.lower()]
+            fc_wd, fc_no_wd = split_decay(fc_named)
+            if fc_wd:
+                param_groups.append({"params": fc_wd, "lr": float(hyperparms["lr"]), "weight_decay": float(hyperparms["decay"])})
+            if fc_no_wd:
+                param_groups.append({"params": fc_no_wd, "lr": float(hyperparms["lr"]), "weight_decay": 0.0})
+
+        elif layer_l == "backbone":
+            bb_named = [(n, p) for n, p in self.model.named_parameters()
+                        if ".lora_module." in n.lower() and ".fc." not in n.lower()]
+            bb_wd, bb_no_wd = split_decay(bb_named)
+            if bb_wd:
+                param_groups.append({"params": bb_wd, "lr": float(hyperparms["lr"]), "weight_decay": float(hyperparms["decay"])})
+            if bb_no_wd:
+                param_groups.append({"params": bb_no_wd, "lr": float(hyperparms["lr"]), "weight_decay": 0.0})
+
+        else:
+            key = layer_l
+            named_group_params = [(n, p) for n, p in self.model.named_parameters()
+                                  if ".lora_module." in n.lower() and key in n.lower()]
+            if not named_group_params:
+                raise ValueError(f"No LoRA parameters matched for layer key '{layer}'")
+
+            w, nw = split_decay(named_group_params)
+            if w:
+                param_groups.append({"params": w, "lr": float(hyperparms["lr"]), "weight_decay": float(hyperparms["decay"])})
+            if nw:
+                param_groups.append({"params": nw, "lr": float(hyperparms["lr"]), "weight_decay": 0.0})
+
+    opt = optim.AdamW(param_groups)
+    sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
+    return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
