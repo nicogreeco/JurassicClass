@@ -1,0 +1,20 @@
+model:
+  name: "ViTRex_FullFT"
+  warmup_fc_only: true
+  layers_to_finetune:
+    fc:
+      lr: 1e-3
+      decay: 0.01
+    backbone:
+      lr: 1e-4
+      decay: 0.001
+
+experiment_name: vitrex_fft_b
+
+training:
+  max_epochs: 40
+  batch_size: 64
+  num_workers: 0
+
+num_classes: 8
+size: 224

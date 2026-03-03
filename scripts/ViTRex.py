@@ -74,6 +74,11 @@ class ViTRex_FullFT(L.LightningModule):
         else:
             self._set_trainable(train_fc=True, train_backbone=True)
             self.model.train()
+            
+        # Per-epoch: trainable AND in optimizer
+        opt_ids = self._optimizer_param_ids()
+        n_tensors, n_elems = self._count_trainable_in_optimizer(opt_ids)
+        self.print(f"[EPOCH {self.current_epoch}] trainable_in_opt tensors={n_tensors} params={n_elems}")
 
     def forward(self, x):
         return self.model(x)
@@ -87,8 +92,8 @@ class ViTRex_FullFT(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
+        self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("train_acc", acc, prog_bar=False, on_step=True, on_epoch=True)
 
         if torch.cuda.is_available() and self.device.type == "cuda":
             mem_mb = torch.cuda.memory_allocated(self.device) / (1024**2)
@@ -97,7 +102,7 @@ class ViTRex_FullFT(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, acc = self._step(batch)
-        self.log("val_loss", loss, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("val_loss", loss, prog_bar=False, on_step=False, on_epoch=True)
         self.log("val_acc", acc, prog_bar=True, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
@@ -108,41 +113,82 @@ class ViTRex_FullFT(L.LightningModule):
 
     def configure_optimizers(self):
         if not hasattr(self.config, "layers_to_finetune"):
-            raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
+            raise ValueError("config.layers_to_finetune is required.")
 
-        if "fc" not in self.config.layers_to_finetune or "backbone" not in self.config.layers_to_finetune:
-            raise ValueError("layers_to_finetune must contain keys: 'fc' and 'backbone'.")
-
-        fc_hp = self.config.layers_to_finetune["fc"]
-        bb_hp = self.config.layers_to_finetune["backbone"]
-
-        def split_decay(params_with_names):
-            wd_params, no_wd_params = [], []
-            for name, p in params_with_names:
+        def split_decay(named_params):
+            wd, no_wd = [], []
+            for name, p in named_params:
                 n = name.lower()
                 if name.endswith("bias") or "bn" in n or "norm" in n:
-                    no_wd_params.append(p)
+                    no_wd.append(p)
                 else:
-                    wd_params.append(p)
-            return wd_params, no_wd_params
-
-        fc_named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
-        bb_named = [(n, p) for n, p in self.model.named_parameters() if ".head." not in n.lower()]
-
-        fc_wd, fc_no_wd = split_decay(fc_named)
-        bb_wd, bb_no_wd = split_decay(bb_named)
+                    wd.append(p)
+            return wd, no_wd
 
         param_groups = []
-        if fc_wd:
-            param_groups.append({"params": fc_wd, "lr": float(fc_hp["lr"]), "weight_decay": float(fc_hp["decay"])})
-        if fc_no_wd:
-            param_groups.append({"params": fc_no_wd, "lr": float(fc_hp["lr"]), "weight_decay": 0.0})
 
-        if bb_wd:
-            param_groups.append({"params": bb_wd, "lr": float(bb_hp["lr"]), "weight_decay": float(bb_hp["decay"])})
-        if bb_no_wd:
-            param_groups.append({"params": bb_no_wd, "lr": float(bb_hp["lr"]), "weight_decay": 0.0})
+        for layer, hp in self.config.layers_to_finetune.items():
+            layer_l = layer.lower()
+
+            if layer_l == "fc":
+                named = [(n, p) for n, p in self.model.named_parameters() if ".head." in n.lower()]
+            elif layer_l == "backbone":
+                named = [(n, p) for n, p in self.model.named_parameters() if ".head." not in n.lower()]
+            else:
+                # specific layer keys like: "encoder_layer_8", "encoder_layer_9", ...
+                # torchvision ViT params include those substrings under encoder.layers.*
+                key = layer_l
+                named = [(n, p) for n, p in self.model.named_parameters() if key in n.lower()]
+
+            if not named:
+                raise ValueError(f"No parameters matched for layer key '{layer}'")
+
+            wd, no_wd = split_decay(named)
+            if wd:
+                param_groups.append({"params": wd, "lr": float(hp["lr"]), "weight_decay": float(hp["decay"])})
+            if no_wd:
+                param_groups.append({"params": no_wd, "lr": float(hp["lr"]), "weight_decay": 0.0})
 
         opt = optim.AdamW(param_groups)
         sch = optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.33, patience=4)
         return {"optimizer": opt, "lr_scheduler": {"scheduler": sch, "monitor": "val_loss"}}
+    
+    def _optimizer_param_ids(self):
+        """Return a set of Python ids for all parameters contained in the first optimizer."""
+        if not hasattr(self, "trainer") or self.trainer is None:
+            return set()
+        if not getattr(self.trainer, "optimizers", None):
+            return set()
+
+        opt = self.trainer.optimizers[0]
+        ids = set()
+        for group in opt.param_groups:
+            for p in group["params"]:
+                ids.add(id(p))
+        return ids
+
+    def _count_optimizer_params(self, ids_set):
+        """Count (a) number of tensors and (b) number of elements for params in ids_set."""
+        n_tensors = 0
+        n_elems = 0
+        for p in self.parameters():
+            if id(p) in ids_set:
+                n_tensors += 1
+                n_elems += p.numel()
+        return n_tensors, n_elems
+
+    def _count_trainable_in_optimizer(self, ids_set):
+        """Count params that are in optimizer AND require_grad=True."""
+        n_tensors = 0
+        n_elems = 0
+        for p in self.parameters():
+            if id(p) in ids_set and p.requires_grad:
+                n_tensors += 1
+                n_elems += p.numel()
+        return n_tensors, n_elems
+
+    def on_train_start(self):
+        # One-time: optimizer membership
+        opt_ids = self._optimizer_param_ids()
+        n_tensors, n_elems = self._count_optimizer_params(opt_ids)
+        self.print(f"[OPT] tensors={n_tensors} params={n_elems}")
