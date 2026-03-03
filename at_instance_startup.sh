@@ -24,7 +24,7 @@ mkdir -p /workspace/JurassicClass/dataset/dataset
 hf download niccogreek/JurassicClass --repo-type dataset \
   --local-dir /workspace/JurassicClass/dataset/dataset
 
-uv pip install python-dateutil
+uv pip install python-dateutil --upgrade
 
 sudo apt update && sudo apt install screen -y
 
