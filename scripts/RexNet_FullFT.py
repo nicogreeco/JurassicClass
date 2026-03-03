@@ -2,10 +2,8 @@ import lightning as L
 from torch import nn, optim
 import torch
 import torch.nn.functional as F
-# from torchvision.models import ResNet18_Weights, resnet18
-# from torchvision.models import ResNet34_Weights, resnet34
-# from torchvision.models import ResNet50_Weights, resnet50
 from torchvision.models import ResNet101_Weights, resnet101
+
 
 class RexNet_FullFT(L.LightningModule):
     def __init__(self, config, num_classes: int = 5):
@@ -18,25 +16,22 @@ class RexNet_FullFT(L.LightningModule):
         self.base_tfms = weights.transforms()
 
         model = resnet101(weights=weights)
-
-        # Replace head
         in_features = model.fc.in_features
         model.fc = nn.Linear(in_features, num_classes)
         self.model = model
 
-        # Feature extractor (for embeddings)
+        # Feature extractor
         self.latent_rap = nn.Sequential(*list(model.children())[:-1])
 
-        # Start with everything trainable (full fine-tune)
-        for p in self.model.parameters():
-            p.requires_grad = True
-
-        # Optional warmup: epoch 0 only fc trains (handled in on_train_epoch_start)
         self.warmup_fc_only = bool(getattr(config, "warmup_fc_only", True))
+        self._set_trainable(train_fc=True, train_backbone=False if self.warmup_fc_only else True)
+
+    def _get_backbone_selection_keys(self):
+        keys = list(getattr(self.config, "layers_to_finetune", {}).keys())
+        keys = [k for k in keys if k != "fc"]
+        return keys
 
     def _set_trainable(self, train_fc: bool, train_backbone: bool):
-        layers_to_finetune = [k for k in self.config.layers_to_finetune.keys()
-                                if k != "fc"]
         # freeze all
         for p in self.model.parameters():
             p.requires_grad = False
@@ -49,18 +44,36 @@ class RexNet_FullFT(L.LightningModule):
 
         # unfreeze backbone
         if train_backbone:
-            for name, p in self.model.named_parameters():
-                if any(layer in name for layer in layers_to_finetune):
-                    p.requires_grad = True
+            keys = self._get_backbone_selection_keys()
+            keys_lower = [k.lower() for k in keys]
 
-    def on_train_epoch_start(self):
+            # Mode A: backbone key -> train everything except fc
+            if "backbone" in keys_lower:
+                for name, p in self.model.named_parameters():
+                    if not name.startswith("fc."):
+                        p.requires_grad = True
+            else:
+                # Mode B: specific layer keys
+                for name, p in self.model.named_parameters():
+                    n = name.lower()
+                    if any(k in n for k in keys_lower):
+                        p.requires_grad = True
+
+    def on_fit_start(self):
         if self.current_epoch == 0 and self.warmup_fc_only:
-            # epoch 0: head only, backbone in eval (BN frozen)
             self._set_trainable(train_fc=True, train_backbone=False)
             self.model.eval()
             self.model.fc.train()
         else:
-            # epoch 1+: full fine-tune
+            self._set_trainable(train_fc=True, train_backbone=True)
+            self.model.train()
+
+    def on_train_epoch_start(self):
+        if self.current_epoch == 0 and self.warmup_fc_only:
+            self._set_trainable(train_fc=True, train_backbone=False)
+            self.model.eval()
+            self.model.fc.train()
+        else:
             self._set_trainable(train_fc=True, train_backbone=True)
             self.model.train()
 
@@ -82,7 +95,7 @@ class RexNet_FullFT(L.LightningModule):
     def _step(self, batch):
         x, y = batch
         logits = self(x)
-        loss = nn.functional.cross_entropy(logits, y)
+        loss = F.cross_entropy(logits, y)
         acc = (logits.argmax(dim=1) == y).float().mean()
         return loss, acc
 
@@ -90,9 +103,9 @@ class RexNet_FullFT(L.LightningModule):
         loss, acc = self._step(batch)
         self.log("train_loss", loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log("train_acc", acc, prog_bar=True, on_step=True, on_epoch=True)
-        
+
         if torch.cuda.is_available() and self.device.type == "cuda":
-            mem_mb = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
+            mem_mb = torch.cuda.memory_allocated(self.device) / (1024**2)
             self.log("gpu_mem_mb", mem_mb, prog_bar=True, on_step=True, on_epoch=False)
         return loss
 
@@ -108,15 +121,6 @@ class RexNet_FullFT(L.LightningModule):
         return {"test_loss": loss, "test_acc": acc}
 
     def configure_optimizers(self):
-        """
-        Expects config.layers_to_finetune with two keys:
-          - fc: {lr: ..., decay: ...}
-          - backbone: {lr: ..., decay: ...}
-        Example:
-          layers_to_finetune:
-            fc: {lr: 5e-3, decay: 1e-4}
-            backbone: {lr: 5e-4, decay: 1e-2}
-        """
         if not hasattr(self.config, "layers_to_finetune"):
             raise ValueError("config.layers_to_finetune is required (fc + backbone groups).")
 
@@ -131,7 +135,8 @@ class RexNet_FullFT(L.LightningModule):
             for name, p in params_with_names:
                 if not p.requires_grad:
                     continue
-                if name.endswith("bias") or "bn" in name.lower() or "norm" in name.lower():
+                n = name.lower()
+                if name.endswith("bias") or "bn" in n or "norm" in n:
                     no_wd_params.append(p)
                 else:
                     wd_params.append(p)
