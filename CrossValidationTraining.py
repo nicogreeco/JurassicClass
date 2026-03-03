@@ -174,8 +174,7 @@ def run_cross_validation(model_class, base_tfms, config):
         shuffle=False,
         num_workers=0,
     )
-#   kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    kfold = StratifiedKFold(n_splits=2, shuffle=True, random_state=42)
+    kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
     fold_results = {
         "val_loss": [],
@@ -252,8 +251,7 @@ def run_cross_validation(model_class, base_tfms, config):
             default_root_dir=str(checkpoint_dir),
             logger=tb_logger,
             callbacks=[validation_tracker, gpu_tracker, epoch_time_tracker, early_stopping_callback, checkpoint_callback],
-            # max_epochs=config.training.max_epochs,
-            max_epochs=5,  # rely on early stopping
+            max_epochs=config.training.max_epochs,
             enable_checkpointing=True,
             log_every_n_steps=10,
         )
