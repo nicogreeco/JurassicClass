@@ -89,6 +89,60 @@ These are interactive Altair HTML exports (UMAP projection of penultimate-layer 
 * EfficientNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_EfficentRex_images.html
 * ResNet: https://nicogreeco.github.io/JurassicClass/images/latent/last_block_finetune_RexNet_images.html
 
+## LoRA vs Full Fine-Tuning on Larger Backbones (RexNet-101 & ViTRex-B)
+
+To study **parameter-efficient fine-tuning**, I ran a new set of 5-fold stratified cross-validation experiments comparing **Full Fine-Tuning (FFT)** against **LoRA** (Low-Rank Adaptation). LoRA injects small trainable low-rank updates into existing layers (instead of updating all backbone weights), typically reducing the number of trainable parameters while aiming to preserve most of the pretrained representation.
+
+I initially planned to include **EfficientNetV2-S**, but the LoRA implementation I used had issues with **EfficientNet’s depthwise convolutions**. For this reason, I focused on two large, standard backbones: **RexNet (ResNet-101 based)** and **ViTRex (ViT-B/16 based)**.
+
+### Experimental setup
+For each backbone I tested:
+- **FFT** vs **LoRA ranks** *r = 10, 50, 100*
+- Two training scopes:
+  - **full**: adapt the whole backbone (FFT trains all backbone weights; LoRA trains adapters across the backbone)
+  - **partial**: adapt only late layers (ResNet: last block / `layer4`; ViT: encoder blocks **8–11**). In LoRA-partial, only adapters inside the unfrozen layers are trained.
+
+**Metrics tracked** (averaged across folds): validation loss/accuracy, test accuracy, **peak GPU memory** (PyTorch peak allocated), **avg epoch time**, and **epochs trained** (with early stopping; checkpoint chosen by minimum validation loss).
+
+### Results (mean ± std across 5 folds)
+
+#### ViTRex (ViT-B/16 backbone)
+
+| Scope   | Method     | Test acc    | Val loss        | Peak GPU mem (MB)   | Avg epoch time (s)   | Epochs trained   |
+|:--------|:-----------|:------------|:----------------|:--------------------|:---------------------|:-----------------|
+| full    | FFT        | 0.90 ± 0.01 | 0.3101 ± 0.0606 | 9065.96 ± 0.00      | 54.74 ± 0.35         | 29.60 ± 9.29     |
+| full    | LoRA r=10  | 0.86 ± 0.01 | 0.3846 ± 0.0532 | 8267.76 ± 0.00      | 48.11 ± 0.33         | 25.40 ± 3.21     |
+| full    | LoRA r=50  | 0.88 ± 0.01 | 0.3383 ± 0.0541 | 8418.04 ± 0.00      | 48.96 ± 0.32         | 23.20 ± 2.05     |
+| full    | LoRA r=100 | 0.89 ± 0.00 | 0.3240 ± 0.0706 | 8630.73 ± 0.99      | 50.95 ± 0.51         | 25.60 ± 4.16     |
+| partial | FFT        | 0.89 ± 0.00 | 0.3321 ± 0.0664 | 3409.05 ± 0.00      | 77.12 ± 0.64         | 25.20 ± 4.92     |
+| partial | LoRA r=10  | 0.84 ± 0.03 | 0.4682 ± 0.0553 | 6176.01 ± 0.00      | 82.55 ± 0.51         | 28.20 ± 5.81     |
+| partial | LoRA r=50  | 0.87 ± 0.01 | 0.3971 ± 0.0658 | 6241.27 ± 0.00      | 79.09 ± 7.03         | 25.60 ± 5.94     |
+| partial | LoRA r=100 | 0.88 ± 0.02 | 0.3648 ± 0.0567 | 6340.17 ± 0.00      | 69.67 ± 0.82         | 27.60 ± 6.73     |
+
+#### RexNet (ResNet-101 backbone)
+
+| Scope   | Method     | Test acc    | Val loss        | Peak GPU mem (MB)   | Avg epoch time (s)   | Epochs trained   |
+|:--------|:-----------|:------------|:----------------|:--------------------|:---------------------|:-----------------|
+| full    | FFT        | 0.91 ± 0.02 | 0.2896 ± 0.0410 | 8480.29 ± 1.05      | 73.06 ± 1.02         | 23.20 ± 4.44     |
+| full    | LoRA r=10  | 0.78 ± 0.03 | 0.5994 ± 0.0336 | 8233.06 ± 0.00      | 72.73 ± 0.52         | 28.40 ± 7.83     |
+| full    | LoRA r=50  | 0.85 ± 0.04 | 0.5116 ± 0.2211 | 9005.69 ± 0.00      | 74.04 ± 0.45         | 33.60 ± 6.11     |
+| full    | LoRA r=100 | 0.87 ± 0.02 | 0.4565 ± 0.0829 | 10004.11 ± 0.00     | 76.26 ± 1.52         | 33.40 ± 6.19     |
+| partial | FFT        | 0.85 ± 0.02 | 0.5172 ± 0.0597 | 1031.86 ± 0.00      | 65.99 ± 0.32         | 23.60 ± 7.13     |
+| partial | LoRA r=10  | 0.84 ± 0.01 | 0.4899 ± 0.0777 | 1108.20 ± 0.00      | 67.95 ± 0.46         | 39.60 ± 0.89     |
+| partial | LoRA r=50  | 0.86 ± 0.01 | 0.4514 ± 0.0729 | 1148.61 ± 0.00      | 67.48 ± 0.61         | 32.40 ± 5.86     |
+| partial | LoRA r=100 | 0.86 ± 0.01 | 0.4357 ± 0.0890 | 1200.48 ± 0.00      | 68.76 ± 0.30         | 28.60 ± 4.28     |
+
+### Comments & open issues (needs further investigation)
+Overall, **FFT tends to achieve the best accuracy** across both backbones. This is expected because FFT can update the full parameter space, while LoRA restricts adaptation to a **low-rank subspace**. As a result, **LoRA usually underperforms FFT**, especially at low rank.
+
+A consistent trend is that **LoRA performance improves as rank increases (r=10 → 50 → 100)**, which matches the intuition that higher ranks increase the **expressivity** of the adaptation (less constrained updates), partially closing the gap with FFT.
+
+Training dynamics also change with LoRA. For instance, **ViT (full)** often trains **more epochs** than LoRA on average, while **ViT (partial)** tends to show the opposite (LoRA trains **more epochs** than FFT). For **ResNet**, LoRA frequently trains **more epochs** than FFT in both full and partial setups. This suggests LoRA can lead to **different optimization and early-stopping trajectories** (e.g., smoother loss curves or slower convergence), even under the same max-epoch and early-stopping settings.
+
+Two behaviors deserve further investigation:
+1) **LoRA occasionally matches or exceeds FFT in the partial ResNet setting (r=50/100).** A plausible explanation is that constraining updates to a low-rank subspace acts as an **implicit regularizer**, limiting harmful weight drift when only late layers are adapted and improving generalization in some settings. Significance testing and repeated runs are needed to confirm robustness.
+2) **GPU memory does not always decrease with LoRA (especially for ViT partial).** Despite a large reduction in trainable parameters, peak GPU memory can **increase**, suggesting the bottleneck is not optimizer state but rather **activation/graph/kernels behavior** (e.g., LoRA wrapping altering attention/linear execution paths or increasing saved tensors), and the fact that “peak allocated” is sensitive to transient spikes. Profiling memory across forward/backward steps is needed to pinpoint the cause.
+
 ## Future Work
 
 The next stage of the project will explore generative modeling. The goal is to fine-tune a diffusion model capable of generating dinosaur images conditioned on species labels. Such a model could be used to augment the dataset with synthetic samples and to investigate how generative and discriminative components might be combined to further improve classification performance.
